@@ -3,7 +3,7 @@ import type { LanguageCode } from "./language";
 export type SpeakerId = "a" | "b";
 
 /** State of a participant's microphone capture. */
-export type MicState = "idle" | "listening" | "muted" | "error";
+export type MicState = "disconnected" | "connecting" | "listening" | "error";
 
 /** State of the realtime connection to the transcription/translation backend. */
 export type ConnectionState =
