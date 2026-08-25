@@ -1,8 +1,10 @@
 export function TranscriptPane({
   label,
+  value,
   emptyHint,
 }: {
   label: string;
+  value?: string;
   emptyHint: string;
 }) {
   return (
@@ -10,9 +12,13 @@ export function TranscriptPane({
       <span className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
         {label}
       </span>
-      <p className="flex flex-1 items-center text-sm italic text-[var(--muted)]">
-        {emptyHint}
-      </p>
+      {value ? (
+        <p className="flex-1 whitespace-pre-wrap text-sm leading-relaxed text-[var(--foreground)]">
+          {value}
+        </p>
+      ) : (
+        <p className="flex flex-1 items-center text-sm italic text-[var(--muted)]">{emptyHint}</p>
+      )}
     </div>
   );
 }
