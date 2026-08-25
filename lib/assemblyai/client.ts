@@ -32,10 +32,14 @@ export async function createTranscriptionStream(
   });
 
   transcriber.on("error", (error: Error) => {
+    console.error("[assemblyai] streaming error:", error);
     config.onError(new TranscriptionError("connection", error.message));
   });
 
   transcriber.on("close", (code: number, reason: string) => {
+    if (code !== 1000) {
+      console.error("[assemblyai] streaming socket closed unexpectedly:", { code, reason });
+    }
     config.onClose?.(code, reason);
   });
 

@@ -121,9 +121,11 @@ export function useTranscriptionSession() {
           fail(error.message);
           void teardown();
         },
-        onClose: (code) => {
+        onClose: (code, reason) => {
           if (!isCurrent() || code === 1000) return;
-          fail("The transcription connection was lost.");
+          fail(
+            `The transcription connection was lost (code ${code}${reason ? `: ${reason}` : ""}).`,
+          );
           void teardown();
         },
       });
