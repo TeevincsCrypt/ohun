@@ -123,6 +123,8 @@ export function useTranscriptionSession({ language, targetLanguage }: SessionOpt
       const controller = new AbortController();
       translationAbortRef.current = controller;
 
+      console.info("[ohun] translating", { from: language, to: targetLanguage, text });
+
       if (isCurrent()) {
         setState((current) => ({ ...current, isTranslating: true, translationError: null }));
       }
@@ -132,6 +134,8 @@ export function useTranscriptionSession({ language, targetLanguage }: SessionOpt
           { text, from: language, to: targetLanguage },
           { signal: controller.signal },
         );
+
+        console.info("[ohun] translated", { translatedText });
 
         if (!isCurrent()) return;
         lastTranslationRef.current = translatedText;
@@ -144,6 +148,7 @@ export function useTranscriptionSession({ language, targetLanguage }: SessionOpt
         await speak({ text: translatedText, languageCode: localeFor(targetLanguage) });
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
+        console.error("[ohun] translation failed", error);
         if (!isCurrent()) return;
         setState((current) => ({
           ...current,
@@ -192,6 +197,11 @@ export function useTranscriptionSession({ language, targetLanguage }: SessionOpt
           }));
         },
         onTranscript: ({ turnOrder, text, isFinal }) => {
+          // Whether `isFinal` (AssemblyAI's end_of_turn) ever becomes true is
+          // the difference between "translation never fires" and "translation
+          // fired and failed" — log it so the console distinguishes them.
+          console.info("[ohun] turn", { turnOrder, isFinal, chars: text.length });
+
           if (currentTurnOrderRef.current !== null && turnOrder !== currentTurnOrderRef.current) {
             priorTurnsRef.current = [priorTurnsRef.current, currentTurnTextRef.current]
               .filter(Boolean)
