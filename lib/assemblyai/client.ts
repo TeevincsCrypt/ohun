@@ -11,6 +11,7 @@ import type { TranscriptionStream, TranscriptionStreamConfig } from "./types";
  */
 
 const STREAMING_SAMPLE_RATE = 16_000;
+const CONNECT_TIMEOUT_MS = 15_000;
 
 export async function createTranscriptionStream(
   config: TranscriptionStreamConfig,
@@ -21,6 +22,14 @@ export async function createTranscriptionStream(
     token,
     sampleRate: STREAMING_SAMPLE_RATE,
     formatTurns: true,
+    // The SDK defaults to a 1000ms handshake budget, which is sized for a
+    // server sitting close to AssemblyAI. From a browser that budget has to
+    // cover DNS + TCP + TLS + the HTTP upgrade + the server's `Begin` frame,
+    // which is easily over a second on a normal consumer connection or from
+    // a region far from AssemblyAI's infrastructure. Give it real headroom.
+    connectTimeout: CONNECT_TIMEOUT_MS,
+    maxConnectionRetries: 3,
+    connectionRetryDelay: 750,
   });
 
   transcriber.on("turn", (event: TurnEvent) => {
@@ -31,15 +40,27 @@ export async function createTranscriptionStream(
     });
   });
 
+  // The SDK's connect() retries internally, and its cleanup between attempts
+  // (discardPendingSocket) calls `socket.removeAllListeners?.()` — a Node `ws`
+  // method that does not exist on the browser's native WebSocket. So in a
+  // browser the listeners survive, and the subsequent `socket.close()` fires a
+  // spurious close (code 1006) for a socket the SDK already abandoned. Those
+  // events must not be reported as "the connection dropped", or they mask the
+  // real reason connect() ultimately fails. Only forward close/error once the
+  // session has genuinely opened.
+  let hasOpened = false;
+
   transcriber.on("error", (error: Error) => {
-    console.error("[assemblyai] streaming error:", error);
+    console.error("[assemblyai] streaming error:", error, { hasOpened });
+    if (!hasOpened) return;
     config.onError(new TranscriptionError("connection", error.message));
   });
 
   transcriber.on("close", (code: number, reason: string) => {
     if (code !== 1000) {
-      console.error("[assemblyai] streaming socket closed unexpectedly:", { code, reason });
+      console.error("[assemblyai] socket closed:", { code, reason, hasOpened });
     }
+    if (!hasOpened) return;
     config.onClose?.(code, reason);
   });
 
@@ -55,6 +76,7 @@ export async function createTranscriptionStream(
     );
   }
 
+  hasOpened = true;
   config.onOpen?.({ sessionId: beginEvent.id });
 
   return {
