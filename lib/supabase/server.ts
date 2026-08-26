@@ -1,18 +1,29 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
+export class SupabaseConfigError extends Error {
+  constructor() {
+    super(
+      "Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY (see .env.example).",
+    );
+    this.name = "SupabaseConfigError";
+  }
+}
+
 /**
  * Server-side Supabase client bound to the request's cookies, so Server
  * Components, Route Handlers and Server Actions see the signed-in user.
+ *
+ * Throws SupabaseConfigError (not a bare Error) when the env vars are
+ * missing, so callers can catch specifically that and show a real message
+ * instead of the generic Next.js error boundary.
  */
 export async function createClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!url || !anonKey) {
-    throw new Error(
-      "Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY (see .env.example).",
-    );
+    throw new SupabaseConfigError();
   }
 
   const cookieStore = await cookies();
@@ -36,9 +47,16 @@ export async function createClient() {
   });
 }
 
-/** The signed-in user's profile, or null. */
+/** The signed-in user's profile, or null. Returns null (not a throw) if Supabase isn't configured. */
 export async function getCurrentProfile() {
-  const supabase = await createClient();
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  try {
+    supabase = await createClient();
+  } catch (error) {
+    if (error instanceof SupabaseConfigError) return null;
+    throw error;
+  }
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
