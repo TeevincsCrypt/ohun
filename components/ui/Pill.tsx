@@ -14,13 +14,16 @@ export function Pill({
   children,
   tone = "neutral",
   className = "",
+  title,
 }: {
   children: ReactNode;
   tone?: Tone;
   className?: string;
+  title?: string;
 }) {
   return (
     <span
+      title={title}
       className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium tracking-tight ${tones[tone]} ${className}`}
     >
       {children}
