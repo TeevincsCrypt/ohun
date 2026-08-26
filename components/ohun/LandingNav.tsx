@@ -25,7 +25,7 @@ export function LandingNav() {
         </ul>
         <div className="flex items-center gap-5">
           <Link
-            href="#"
+            href="/login"
             className="hidden text-sm font-medium text-[var(--foreground)]/80 transition-colors hover:text-[var(--foreground)] sm:inline"
           >
             Login
