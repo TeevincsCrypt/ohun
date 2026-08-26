@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { startCall, touchPresence } from "@/lib/calls/actions";
 import { UserResult } from "@/components/ohun/UserResult";
-import { IncomingCallDialog } from "@/components/ohun/IncomingCallDialog";
 import { Pill } from "@/components/ui";
 import type { Profile } from "@/types";
 
@@ -101,8 +100,6 @@ export function PeopleClient({ self }: { self: Profile }) {
 
   return (
     <>
-      <IncomingCallDialog self={self} />
-
       <div className="flex flex-col gap-6">
         <div className="flex flex-col gap-2">
           <label htmlFor="search" className="text-sm font-medium text-[var(--muted)]">

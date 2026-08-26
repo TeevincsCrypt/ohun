@@ -19,14 +19,15 @@ type ListenStatus = "connecting" | "ready" | "error";
 
 /**
  * Listens for calls addressed to the signed-in user and presents the
- * accept/decline prompt. Mounted on /people so a user is reachable while
- * browsing. RLS means only rows where they are the receiver arrive.
+ * accept/decline prompt. Mounted app-wide by IncomingCallWatcher, so a
+ * user stays reachable wherever they are rather than only on /people.
+ * RLS means only rows where they are the receiver arrive.
  *
  * Also renders a small always-visible connection badge — not just the
  * modal — so whether this is actually working is visible on the page
  * itself, with no need to open the browser console.
  */
-export function IncomingCallDialog({ self }: { self: Profile }) {
+export function IncomingCallDialog({ selfId }: { selfId: string }) {
   const router = useRouter();
   const [incoming, setIncoming] = useState<IncomingCall | null>(null);
   const [busy, setBusy] = useState(false);
@@ -37,14 +38,14 @@ export function IncomingCallDialog({ self }: { self: Profile }) {
     const supabase = createClient();
 
     const channel = supabase
-      .channel(`incoming:${self.id}`)
+      .channel(`incoming:${selfId}`)
       .on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
           table: "calls",
-          filter: `receiver_id=eq.${self.id}`,
+          filter: `receiver_id=eq.${selfId}`,
         },
         async (payload) => {
           const row = payload.new as {
@@ -92,7 +93,7 @@ export function IncomingCallDialog({ self }: { self: Profile }) {
           event: "UPDATE",
           schema: "public",
           table: "calls",
-          filter: `receiver_id=eq.${self.id}`,
+          filter: `receiver_id=eq.${selfId}`,
         },
         (payload) => {
           const row = payload.new as { id: string; status: string };
@@ -114,7 +115,7 @@ export function IncomingCallDialog({ self }: { self: Profile }) {
     return () => {
       void channel.unsubscribe();
     };
-  }, [self.id]);
+  }, [selfId]);
 
   const accept = useCallback(async () => {
     if (!incoming) return;
