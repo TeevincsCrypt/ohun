@@ -26,6 +26,7 @@ export function IncomingCallDialog({ self }: { self: Profile }) {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    console.info("[ohun] listening for incoming calls as", self.id, `@${self.username}`);
     const supabase = createClient();
 
     const channel = supabase
@@ -47,15 +48,23 @@ export function IncomingCallDialog({ self }: { self: Profile }) {
             receiver_language: CallLanguageCode;
           };
 
+          console.info("[ohun] incoming call INSERT received", row);
+
           if (row.status !== "ringing") return;
 
-          const { data } = await supabase
+          const { data, error: callerLookupError } = await supabase
             .from("profiles")
             .select("id, username, display_name, preferred_language, last_seen_at")
             .eq("id", row.caller_id)
             .maybeSingle();
 
-          if (!data) return;
+          if (callerLookupError) {
+            console.error("[ohun] could not load caller profile for incoming call", callerLookupError);
+          }
+          if (!data) {
+            console.error("[ohun] no caller profile found — dropping incoming call prompt", row.caller_id);
+            return;
+          }
 
           setIncoming({
             callId: row.id,
@@ -87,12 +96,14 @@ export function IncomingCallDialog({ self }: { self: Profile }) {
           }
         },
       )
-      .subscribe();
+      .subscribe((status, err) => {
+        console.info("[ohun] incoming-call channel status:", status, err ?? "");
+      });
 
     return () => {
       void channel.unsubscribe();
     };
-  }, [self.id]);
+  }, [self.id, self.username]);
 
   const accept = useCallback(async () => {
     if (!incoming) return;
