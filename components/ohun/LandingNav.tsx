@@ -30,7 +30,7 @@ export function LandingNav() {
           >
             Login
           </Link>
-          <Button href="/setup" size="md">
+          <Button href="/signup" size="md">
             Start Free
           </Button>
         </div>

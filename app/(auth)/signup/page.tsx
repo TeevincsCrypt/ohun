@@ -72,6 +72,12 @@ export default function SignUpPage() {
           </Pill>
         )}
 
+        {state.info && (
+          <Pill tone="warning" className="w-full justify-center text-center">
+            {state.info}
+          </Pill>
+        )}
+
         <SubmitButton />
       </form>
     </AuthShell>

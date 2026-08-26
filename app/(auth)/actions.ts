@@ -7,16 +7,25 @@ import { isCallLanguage, validateUsername } from "@/types";
 
 export interface AuthFormState {
   error: string | null;
+  /** A non-error notice, e.g. "check your email to confirm your account". */
+  info?: string | null;
 }
 
 const CONFIG_ERROR_MESSAGE =
   "Accounts aren't set up on this deployment yet (Supabase isn't configured). Ask the site owner to add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.";
 
+function isDuplicateUsernameError(message: string): boolean {
+  return /duplicate|unique|already exists/i.test(message);
+}
+
 /**
- * Creates the auth user, then the profile row. Username uniqueness and the
- * language whitelist are enforced by the database (unique index + CHECK),
- * so a race between two signups still cannot produce a duplicate — the
- * checks here only produce friendlier messages.
+ * Creates the auth user. The profile row is created by a database trigger
+ * (see supabase/schema.sql: handle_new_user), not here — a client-side
+ * insert right after signUp() only works when the project auto-confirms
+ * email, since otherwise signUp() returns a user but no session, and an
+ * unauthenticated insert is correctly rejected by RLS. The trigger runs in
+ * the same transaction as the auth user, so it succeeds either way.
+ * Username/display name/language reach it via signUp()'s options.data.
  */
 export async function signUp(
   _prev: AuthFormState,
@@ -48,7 +57,8 @@ export async function signUp(
   }
 
   // Fail fast on an obviously taken username so we don't create an orphaned
-  // auth user. The unique index is still the real guarantee.
+  // auth user. The unique index on profiles is still the real guarantee —
+  // this is only for a friendlier message in the common case.
   const { data: existing } = await supabase
     .from("profiles")
     .select("id")
@@ -60,24 +70,33 @@ export async function signUp(
   const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
     email,
     password,
+    options: {
+      data: {
+        username,
+        display_name: displayName,
+        preferred_language: preferredLanguage,
+      },
+    },
   });
 
-  if (signUpError) return { error: signUpError.message };
+  if (signUpError) {
+    // A username that won the race against our pre-check fails inside the
+    // profile-creation trigger, which runs in the same transaction as the
+    // auth user — so it surfaces here rather than as a separate error.
+    return {
+      error: isDuplicateUsernameError(signUpError.message)
+        ? `@${username} is already taken.`
+        : signUpError.message,
+    };
+  }
   if (!signUpData.user) return { error: "Could not create the account." };
 
-  const { error: profileError } = await supabase.from("profiles").insert({
-    id: signUpData.user.id,
-    username,
-    display_name: displayName,
-    preferred_language: preferredLanguage,
-  });
-
-  if (profileError) {
+  // No session means the project requires email confirmation — signUp()
+  // created the account but there is nothing to redirect into yet.
+  if (!signUpData.session) {
     return {
-      error:
-        profileError.code === "23505"
-          ? `@${username} is already taken.`
-          : `Could not create your profile: ${profileError.message}`,
+      error: null,
+      info: "Account created. Check your email to confirm it, then log in.",
     };
   }
 
@@ -105,7 +124,13 @@ export async function signIn(
 
   const { error } = await supabase.auth.signInWithPassword({ email, password });
 
-  if (error) return { error: "That email and password don't match an account." };
+  if (error) {
+    return {
+      error: /confirm/i.test(error.message)
+        ? "Confirm your email before logging in — check your inbox."
+        : "That email and password don't match an account.",
+    };
+  }
 
   revalidatePath("/", "layout");
   redirect(next.startsWith("/") ? next : "/people");

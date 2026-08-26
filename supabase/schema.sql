@@ -65,14 +65,21 @@ create index if not exists calls_caller_status_idx
 alter table public.profiles enable row level security;
 alter table public.calls    enable row level security;
 
--- Any signed-in user can read profiles (required for search); you may only
--- create or modify your own. This is what prevents impersonation.
+-- Readable by anyone, including a not-yet-authenticated signup form checking
+-- username availability. Usernames and display names are meant to be
+-- discoverable (that's the whole point of search) and carry no secret —
+-- email and password live in auth.users, not here.
 drop policy if exists "profiles readable by authenticated" on public.profiles;
-create policy "profiles readable by authenticated"
+drop policy if exists "profiles are publicly readable" on public.profiles;
+create policy "profiles are publicly readable"
   on public.profiles for select
-  to authenticated
+  to anon, authenticated
   using (true);
 
+-- Direct inserts are only ever done by the signup trigger below, which runs
+-- as security definer and bypasses RLS entirely. This policy is defense in
+-- depth, not the normal path — it still stops any other client from
+-- inserting as someone else.
 drop policy if exists "insert own profile" on public.profiles;
 create policy "insert own profile"
   on public.profiles for insert
@@ -108,6 +115,44 @@ create policy "update own calls"
   to authenticated
   using (auth.uid() = caller_id or auth.uid() = receiver_id)
   with check (auth.uid() = caller_id or auth.uid() = receiver_id);
+
+-- ---------------------------------------------------------------------------
+-- Auto-create the profile row when a new auth user signs up.
+--
+-- signUp() cannot reliably insert the profile itself: if the Supabase
+-- project requires email confirmation (the default for a new project),
+-- signUp() returns a user but no session, so a client-side insert right
+-- after runs unauthenticated and RLS correctly rejects it (auth.uid() is
+-- null). SECURITY DEFINER runs this in the same transaction as the
+-- auth.users insert, as the function owner rather than the calling client,
+-- so it succeeds regardless of session state — Supabase's own documented
+-- pattern for this exact situation.
+--
+-- Username, display name and language are passed through signUp()'s
+-- options.data and land in raw_user_meta_data.
+-- ---------------------------------------------------------------------------
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, username, display_name, preferred_language)
+  values (
+    new.id,
+    lower(new.raw_user_meta_data ->> 'username'),
+    coalesce(new.raw_user_meta_data ->> 'display_name', split_part(new.email, '@', 1)),
+    coalesce(new.raw_user_meta_data ->> 'preferred_language', 'en')
+  );
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
 
 -- ---------------------------------------------------------------------------
 -- Realtime: the client subscribes to call rows to drive ring/accept/end.
