@@ -26,6 +26,18 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
   const [connectionState, setConnectionState] = useState<CallConnectionState>(
     call.status === "ringing" ? (isCaller ? "calling" : "ringing") : "connecting",
   );
+
+  // `call` is a server-render snapshot and never updates. The caller lands
+  // here while the row still says "ringing", so the live status has to come
+  // from the Realtime watcher below — otherwise the caller would wait
+  // forever for an acceptance it can never observe.
+  const [liveStatus, setLiveStatus] = useState<CallStatus>(call.status);
+
+  // Deliberately a boolean, not the raw status: it flips false -> true once
+  // when the call is answered and then stays true, so the later
+  // accepted -> connected transition does not re-run the media effect and
+  // tear down a working peer connection.
+  const shouldNegotiate = liveStatus === "accepted" || liveStatus === "connected";
   const [micEnabled, setMicEnabled] = useState(true);
   const [speakerEnabled, setSpeakerEnabled] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +77,7 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
   // --- media + signalling ---------------------------------------------------
   useEffect(() => {
     // Only negotiate once the call has actually been answered.
-    if (call.status !== "accepted" && call.status !== "connected") return;
+    if (!shouldNegotiate) return;
 
     let cancelled = false;
     const supabase = createClient();
@@ -161,7 +173,7 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
       void channel.unsubscribe();
       channelRef.current = null;
     };
-  }, [call.id, call.status, isCaller, selfId]);
+  }, [call.id, shouldNegotiate, isCaller, selfId]);
 
   // --- watch the call row so either side leaving ends it for both ----------
   useEffect(() => {
@@ -173,13 +185,50 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
         { event: "UPDATE", schema: "public", table: "calls", filter: `id=eq.${call.id}` },
         (payload) => {
           const status = (payload.new as { status: CallStatus }).status;
+
+          // Drives the caller out of "ringing" once the receiver answers.
+          setLiveStatus(status);
+
           if (isTerminalStatus(status) && !teardownRef.current) {
             teardown();
             setConnectionState(status === "declined" ? "declined" : "ended");
+            return;
+          }
+
+          // Show "connecting" the moment it is answered; the peer's own
+          // state change is what later promotes this to "connected".
+          if (status === "accepted") {
+            setConnectionState((current) =>
+              current === "calling" || current === "ringing" ? "connecting" : current,
+            );
           }
         },
       )
-      .subscribe();
+      .subscribe(async (status) => {
+        if (status !== "SUBSCRIBED") return;
+
+        // An UPDATE fired between this page mounting and the subscription
+        // going live would be missed entirely, stranding the caller on
+        // "calling" forever. Reconcile once against the row itself.
+        const { data } = await supabase
+          .from("calls")
+          .select("status")
+          .eq("id", call.id)
+          .maybeSingle();
+
+        const current = (data as { status: CallStatus } | null)?.status;
+        if (!current) return;
+
+        setLiveStatus(current);
+        if (isTerminalStatus(current) && !teardownRef.current) {
+          teardown();
+          setConnectionState(current === "declined" ? "declined" : "ended");
+        } else if (current === "accepted" || current === "connected") {
+          setConnectionState((previous) =>
+            previous === "calling" || previous === "ringing" ? "connecting" : previous,
+          );
+        }
+      });
 
     return () => {
       void watcher.unsubscribe();
