@@ -1,7 +1,8 @@
 import { StreamingTranscriber } from "assemblyai/streaming";
-import type { TurnEvent } from "assemblyai/streaming";
+import type { StreamingSpeechModel, TurnEvent } from "assemblyai/streaming";
 import { TranscriptionError } from "./errors";
 import type { TranscriptionStream, TranscriptionStreamConfig } from "./types";
+import type { LanguageCode } from "@/types";
 
 /**
  * Browser-only. Opens a realtime AssemblyAI streaming session using a
@@ -13,6 +14,19 @@ import type { TranscriptionStream, TranscriptionStreamConfig } from "./types";
 const STREAMING_SAMPLE_RATE = 16_000;
 const CONNECT_TIMEOUT_MS = 15_000;
 
+/**
+ * AssemblyAI ships separate streaming models: an English-only one (fastest)
+ * and a multilingual one covering English, Spanish, German, French,
+ * Portuguese and Italian. Picking per-language is what makes French and
+ * Spanish transcribe properly instead of being forced through the
+ * English-tuned model.
+ */
+function speechModelFor(language: LanguageCode): StreamingSpeechModel {
+  return language === "en"
+    ? "universal-streaming-english"
+    : "universal-streaming-multilingual";
+}
+
 export async function createTranscriptionStream(
   config: TranscriptionStreamConfig,
 ): Promise<TranscriptionStream> {
@@ -22,6 +36,7 @@ export async function createTranscriptionStream(
     token,
     sampleRate: STREAMING_SAMPLE_RATE,
     formatTurns: true,
+    speechModel: speechModelFor(config.language),
     // The SDK defaults to a 1000ms handshake budget, which is sized for a
     // server sitting close to AssemblyAI. From a browser that budget has to
     // cover DNS + TCP + TLS + the HTTP upgrade + the server's `Begin` frame,

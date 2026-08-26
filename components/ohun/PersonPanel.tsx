@@ -7,21 +7,43 @@ import { RepeatTranslationButton } from "./RepeatTranslationButton";
 interface PersonPanelProps {
   label: string;
   language?: Language;
+  /** The language this person's speech is translated into. */
+  targetLanguage?: Language;
   micState?: MicState;
   transcript?: string;
+  translation?: string;
+  isTranslating?: boolean;
   error?: string | null;
-  /** Omit to render Person B's inert placeholder mic (no functional speech input in this phase). */
+  translationError?: string | null;
+  /** Omit to render an inert placeholder mic. */
   onToggleMic?: () => void;
+  /** Omit to render the repeat button inert. */
+  onRepeatTranslation?: () => void;
+  canSpeakAloud?: boolean;
 }
 
 export function PersonPanel({
   label,
   language,
+  targetLanguage,
   micState,
   transcript,
+  translation,
+  isTranslating,
   error,
+  translationError,
   onToggleMic,
+  onRepeatTranslation,
+  canSpeakAloud = true,
 }: PersonPanelProps) {
+  const translatedLabel = targetLanguage
+    ? `Translated · ${targetLanguage.label}`
+    : "Translated";
+
+  const translatedHint = isTranslating
+    ? "Translating…"
+    : "Translation will appear here…";
+
   return (
     <Card className="flex flex-1 flex-col gap-5">
       <div className="flex items-center justify-between">
@@ -44,10 +66,29 @@ export function PersonPanel({
 
       <div className="flex flex-col gap-3">
         <TranscriptPane label="Live transcript" value={transcript} emptyHint="Waiting for speech…" />
-        <TranscriptPane label="Translated" emptyHint="Translation will appear here…" />
+        <TranscriptPane label={translatedLabel} value={translation} emptyHint={translatedHint} />
       </div>
 
-      <RepeatTranslationButton />
+      {translationError && (
+        <Pill tone="error" className="w-full justify-center text-center">
+          {translationError}
+        </Pill>
+      )}
+
+      {!canSpeakAloud && (
+        <Pill tone="warning" className="w-full justify-center text-center">
+          This browser can&apos;t speak translations aloud — they will still appear as text.
+        </Pill>
+      )}
+
+      <RepeatTranslationButton
+        onClick={onRepeatTranslation}
+        disabledReason={
+          canSpeakAloud
+            ? undefined
+            : "This browser does not support speech playback"
+        }
+      />
     </Card>
   );
 }

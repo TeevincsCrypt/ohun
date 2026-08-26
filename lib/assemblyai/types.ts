@@ -1,3 +1,5 @@
+import type { LanguageCode } from "@/types";
+
 /**
  * App-level types for the AssemblyAI realtime streaming integration.
  * These wrap the `assemblyai` SDK's own `StreamingTranscriber` (see
@@ -15,6 +17,8 @@ export interface TranscriptUpdate {
 }
 
 export interface TranscriptionStreamConfig {
+  /** The language this participant speaks; selects the streaming speech model. */
+  language: LanguageCode;
   /** Fired once the server has accepted the session and is ready for audio. */
   onOpen?: (info: { sessionId: string }) => void;
   onTranscript: (update: TranscriptUpdate) => void;
