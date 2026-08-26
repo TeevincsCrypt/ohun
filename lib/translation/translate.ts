@@ -99,6 +99,13 @@ export async function translateText(
     if (error instanceof Anthropic.RateLimitError) {
       throw new TranslationFailedError("rate limited — too many requests");
     }
+    // The API has no typed class for an exhausted balance — it arrives as a
+    // generic 400 — so this is matched on the documented message text.
+    if (error instanceof Anthropic.APIError && /credit balance is too low/i.test(error.message)) {
+      throw new TranslationFailedError(
+        "the Anthropic account is out of credits — add credits in the Anthropic Console under Plans & Billing",
+      );
+    }
     if (error instanceof Anthropic.APIError) {
       throw new TranslationFailedError(`Anthropic API error ${error.status}: ${error.message}`);
     }
