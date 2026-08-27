@@ -83,21 +83,33 @@ export function PeopleClient({ self }: { self: Profile }) {
     return () => clearTimeout(timer);
   }, [term, self.id]);
 
+  /**
+   * Places a call and navigates into the room.
+   *
+   * Returns a message on failure rather than only setting page-level state:
+   * Recent calls sits far below the search box, so its own errors have to
+   * render next to the button that caused them.
+   */
   const handleCall = useCallback(
-    async (profile: Pick<Profile, "id" | "displayName">) => {
+    async (profile: Pick<Profile, "id" | "displayName">): Promise<string | null> => {
       setCallingId(profile.id);
       setError(null);
+
       const { callId, error: callError, code } = await startCall(profile.id);
+
       if (callError || !callId) {
+        setCallingId(null);
         if (code === "free_tier_exhausted") {
           setShowUpgrade(true);
-        } else {
-          setError(callError ?? "Could not start the call.");
+          return null;
         }
-        setCallingId(null);
-        return;
+        const message = callError ?? "Could not start the call.";
+        setError(message);
+        return message;
       }
+
       router.push(`/call/${callId}`);
+      return null;
     },
     [router],
   );

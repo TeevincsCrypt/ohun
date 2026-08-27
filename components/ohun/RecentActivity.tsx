@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import { listRecentCalls } from "@/lib/calls/history";
 import { Avatar } from "./UserResult";
-import { Card } from "@/components/ui";
+import { Card, Pill } from "@/components/ui";
 import { LANGUAGE_FLAG, type CallHistoryEntry, type CallOutcome, type Profile } from "@/types";
 
 const OUTCOME_COPY: Record<CallOutcome, string> = {
@@ -79,10 +79,12 @@ function DirectionIcon({ outgoing, missed }: { outgoing: boolean; missed: boolea
 function HistoryRow({
   entry,
   now,
+  pending,
   onCall,
 }: {
   entry: CallHistoryEntry;
   now: number;
+  pending: boolean;
   onCall: (profile: CallHistoryEntry["counterpart"]) => void;
 }) {
   const missed = entry.outcome === "missed";
@@ -116,16 +118,24 @@ function HistoryRow({
       <button
         type="button"
         onClick={() => onCall(entry.counterpart)}
+        disabled={pending}
         aria-label={`Call ${entry.counterpart.displayName} back`}
         title="Call back"
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--border)] text-[var(--muted)] transition-colors hover:bg-[var(--surface)] hover:text-[var(--accent)]"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--border)] text-[var(--muted)] transition-colors hover:bg-[var(--surface)] hover:text-[var(--accent)] disabled:opacity-50"
       >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-          <path
-            d="M3 10.5c5-4 13-4 18 0v3.2c0 .8-.7 1.4-1.5 1.3l-3-.4a1.4 1.4 0 0 1-1.2-1.3v-1.5c-2.7-1-5.9-1-8.6 0v1.5c0 .7-.5 1.2-1.2 1.3l-3 .4A1.4 1.4 0 0 1 3 13.7z"
-            strokeLinejoin="round"
+        {pending ? (
+          <span
+            aria-hidden
+            className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--accent)]"
           />
-        </svg>
+        ) : (
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path
+              d="M3 10.5c5-4 13-4 18 0v3.2c0 .8-.7 1.4-1.5 1.3l-3-.4a1.4 1.4 0 0 1-1.2-1.3v-1.5c-2.7-1-5.9-1-8.6 0v1.5c0 .7-.5 1.2-1.2 1.3l-3 .4A1.4 1.4 0 0 1 3 13.7z"
+              strokeLinejoin="round"
+            />
+          </svg>
+        )}
       </button>
     </div>
   );
@@ -137,11 +147,31 @@ export function RecentActivity({
 }: {
   /** Changes whenever a call ends, so the list reloads without a refresh. */
   refreshToken?: number;
-  onCall: (profile: Pick<Profile, "id" | "displayName">) => void;
+  /** Resolves to a message when the call could not be placed. */
+  onCall: (profile: Pick<Profile, "id" | "displayName">) => Promise<string | null>;
 }) {
   const [entries, setEntries] = useState<CallHistoryEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [callingId, setCallingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [, startAction] = useTransition();
+
+  // Placing the call from here rather than handing the click straight up:
+  // this section is far below the page-level error pill, so a failure has
+  // to be reported next to the button that caused it.
+  const callBack = useCallback(
+    (profile: CallHistoryEntry["counterpart"]) => {
+      setError(null);
+      setCallingId(profile.id);
+      startAction(async () => {
+        const message = await onCall(profile);
+        setCallingId(null);
+        if (message) setError(message);
+      });
+    },
+    [onCall],
+  );
 
   const refresh = useCallback(() => {
     void listRecentCalls().then((rows) => {
@@ -168,6 +198,12 @@ export function RecentActivity({
         Recent calls
       </h2>
 
+      {error && (
+        <Pill tone="error" className="mb-3 w-full justify-center text-center">
+          {error}
+        </Pill>
+      )}
+
       <Card className="py-1">
         {entries.length === 0 ? (
           <p className="py-6 text-center text-sm text-[var(--muted)]">
@@ -175,7 +211,13 @@ export function RecentActivity({
           </p>
         ) : (
           entries.map((entry) => (
-            <HistoryRow key={entry.id} entry={entry} now={now} onCall={onCall} />
+            <HistoryRow
+              key={entry.id}
+              entry={entry}
+              now={now}
+              pending={callingId === entry.counterpart.id}
+              onCall={callBack}
+            />
           ))
         )}
       </Card>
