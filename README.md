@@ -62,6 +62,46 @@ microphone real. **Phase 3 (this commit) closes the loop:**
   browser falls back to its default rather than failing — the translation
   still appears as text.
 
+## Phase 4a — accounts and voice calling
+
+Ohun is becoming a real product: accounts, usernames, and browser-to-browser
+audio calls. Phase 4a delivers the calling foundation. **Translation is not
+yet wired into the call room** — that is Phase 4b. The single-device demo at
+`/conversation` is unchanged and still does the full translate-and-speak loop.
+
+- **Auth** — Supabase email/password. Passwords live in Supabase `auth.users`;
+  `profiles` holds only public account data.
+- **Profiles** — display name, unique `@username`, preferred language, and an
+  online indicator driven by a `last_seen_at` heartbeat.
+- **Search** — find people by username or display name.
+- **Calling** — place a call, receive an incoming-call prompt, accept or
+  decline, then talk over WebRTC. Mute, audio toggle, call duration, end call.
+- **Signalling** — Supabase Realtime. Postgres changes on the `calls` row
+  drive ring/accept/end; a broadcast channel carries SDP and ICE. Audio itself
+  is peer-to-peer and never passes through our servers.
+- **Relay** — STUN plus Metered TURN, resolved server-side via
+  `/api/ice-servers` so the provider key never reaches the browser.
+
+### Call languages are narrower than the demo
+
+Accounts may choose **English, French or Spanish** only. Calls run through
+AssemblyAI streaming, whose models cover English, Spanish, German, French,
+Portuguese and Italian — **not Yoruba**. Offering Yoruba here would create
+calls that silently fail to transcribe, so it stays available only in the
+`/conversation` demo. Supporting it means AssemblyAI's Whisper-streaming
+model (different latency profile) or another provider.
+
+### Setup
+
+1. Create a Supabase project.
+2. Run `supabase/schema.sql` in the SQL editor (Dashboard → SQL Editor).
+3. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+4. For TURN, set either `METERED_APP_NAME` + `METERED_API_KEY` (preferred) or
+   `METERED_TURN_USERNAME` + `METERED_TURN_CREDENTIAL`.
+
+Without Supabase configured the app still runs and Phases 1–3 work; only the
+account and calling routes are unavailable.
+
 ## Architecture
 
 ```
@@ -107,11 +147,19 @@ Phases:
 - **Phase 2 (done):** real microphone capture and realtime transcription.
 - **Phase 3 (done):** translation, spoken playback, both microphones,
   per-language speech models.
+- **Phase 4a (done):** accounts, usernames, user search, and WebRTC voice
+  calls between two signed-in users.
+- **Phase 4b:** wire the translation pipeline into the call room, so each
+  side hears the other translated.
 
 ## Environment variables
 
 | Variable | Purpose |
 | --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL. Publishable — RLS protects the data. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key. Publishable. Never use the service-role key here. |
+| `METERED_APP_NAME` / `METERED_API_KEY` | Server-side only. Preferred TURN path: per-session, geo-nearest credentials. |
+| `METERED_TURN_USERNAME` / `METERED_TURN_CREDENTIAL` | Server-side only. Static TURN fallback. |
 | `ASSEMBLYAI_API_KEY` | Server-side only. Mints short-lived streaming tokens for speech-to-text. |
 | `ANTHROPIC_API_KEY` | Server-side only. Used by `/api/translate` to translate utterances with Claude. |
 
