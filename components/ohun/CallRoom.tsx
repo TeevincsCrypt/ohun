@@ -61,8 +61,11 @@ function ConnectionQuality({
   const lit = good ? 3 : limited ? 2 : 1;
 
   return (
-    <div className="flex items-center gap-2.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2">
-      <span className="text-xs font-medium" style={{ color }}>
+    <div
+      className="flex items-center gap-2.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-2 sm:px-3.5"
+      title={label}
+    >
+      <span className="hidden text-xs font-medium sm:inline" style={{ color }}>
         {label}
       </span>
       <span className="flex items-end gap-[2px]" aria-hidden>
@@ -86,17 +89,19 @@ function SpeakerPill({
   color,
   active,
   align = "left",
+  className = "",
 }: {
   label: string;
   color: string;
   active: boolean;
   align?: "left" | "right";
+  className?: string;
 }) {
   return (
     <div
       className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-opacity ${
         align === "right" ? "flex-row-reverse" : ""
-      } ${active ? "opacity-100" : "opacity-45"}`}
+      } ${active ? "opacity-100" : "opacity-45"} ${className}`}
       style={{
         borderColor: active ? color : "var(--border)",
         backgroundColor: active ? `color-mix(in srgb, ${color} 12%, transparent)` : "transparent",
@@ -113,7 +118,7 @@ function SpeakerPill({
           style={{ backgroundColor: active ? color : "var(--muted)", animationDelay: "150ms" }}
         />
       </span>
-      {label}
+      <span className="truncate">{label}</span>
     </div>
   );
 }
@@ -134,14 +139,14 @@ function SpeakerAvatar({
     <div className="relative flex shrink-0 items-center justify-center">
       <span
         aria-hidden
-        className={`absolute h-[132px] w-[132px] rounded-full transition-opacity duration-500 ${
+        className={`absolute h-[112px] w-[112px] rounded-full transition-opacity duration-500 sm:h-[132px] sm:w-[132px] ${
           speaking ? "animate-breathe opacity-100" : "opacity-0"
         }`}
         style={{ background: `radial-gradient(circle, ${glow} 0%, transparent 68%)` }}
       />
       <span
         aria-hidden
-        className="absolute h-[108px] w-[108px] rounded-full border-2 transition-colors duration-300"
+        className="absolute h-[92px] w-[92px] rounded-full border-2 transition-colors duration-300 sm:h-[108px] sm:w-[108px]"
         style={{ borderColor: speaking ? color : "var(--border)" }}
       />
       <div className="relative">
@@ -281,7 +286,7 @@ export function CallRoom({
           touches the microphone, which must keep capturing. */}
       <audio ref={audioRef} autoPlay playsInline />
 
-      <header className="relative z-10 flex items-center justify-between border-b border-[var(--border)] px-6 py-4">
+      <header className="relative z-10 flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3 sm:px-6 sm:py-4">
         <Logo />
         <div className="flex items-center gap-3">
           <ConnectionQuality state={connectionState} hasTurn={hasTurn} />
@@ -296,38 +301,51 @@ export function CallRoom({
                 strokeLinejoin="round"
               />
             </svg>
-            End call
+            <span className="hidden sm:inline">End call</span>
           </button>
         </div>
       </header>
 
-      <main className="relative z-10 mx-auto grid w-full max-w-[1180px] flex-1 gap-5 px-5 py-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <main className="relative z-10 mx-auto grid w-full max-w-[1180px] flex-1 gap-4 px-3 py-4 sm:gap-5 sm:px-5 sm:py-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         {/* --- stage ------------------------------------------------------ */}
-        <section className="card-lit animate-rise flex min-h-0 flex-col rounded-3xl p-6">
-          <div className="flex items-center justify-between">
-            <SpeakerPill label="You" color="var(--accent)" active={connected && micEnabled} />
-            <div className="flex flex-col items-center">
+        <section className="card-lit animate-rise flex min-h-0 min-w-0 flex-col rounded-3xl p-4 sm:p-6">
+          {/* On a phone the timer takes its own line above the two speaker
+              pills — all three side by side collide at 390px. sm:contents
+              dissolves the pill wrapper at wider sizes so the three sit in
+              one row again, ordered around the timer. */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+            <div className="flex flex-col items-center sm:order-2">
               <span className="font-mono text-lg font-semibold tabular-nums tracking-tight">
                 {connected ? formatDuration(durationSeconds) : "--:--"}
               </span>
               <span className="mt-1 inline-flex items-center gap-1.5 text-[11px] text-[var(--muted)]">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="shrink-0">
                   <rect x="4" y="11" width="16" height="10" rx="2" />
                   <path d="M8 11V7a4 4 0 0 1 8 0v4" strokeLinecap="round" />
                 </svg>
                 Audio is end-to-end encrypted
               </span>
             </div>
-            <SpeakerPill
-              label={other.displayName.split(" ")[0]}
-              color="var(--peer)"
-              active={connected && speakerEnabled}
-              align="right"
-            />
+
+            <div className="flex items-center justify-between gap-2 sm:contents">
+              <SpeakerPill
+                label="You"
+                color="var(--accent)"
+                active={connected && micEnabled}
+                className="min-w-0 sm:order-1"
+              />
+              <SpeakerPill
+                label={other.displayName.split(" ")[0]}
+                color="var(--peer)"
+                active={connected && speakerEnabled}
+                align="right"
+                className="min-w-0 sm:order-3"
+              />
+            </div>
           </div>
 
           {/* Avatars, with the live level meters between and beside them. */}
-          <div className="mt-8 flex items-center justify-center gap-3 sm:gap-5">
+          <div className="mt-8 flex items-center justify-center gap-4 sm:gap-5">
             <AudioWaveform
               stream={localStream}
               active={connected && micEnabled}
@@ -348,7 +366,7 @@ export function CallRoom({
               active={connected && micEnabled}
               color="var(--accent)"
               bars={18}
-              className="w-full max-w-[110px]"
+              className="hidden w-full max-w-[110px] sm:flex"
             />
 
             {/* Translation hub */}
@@ -388,7 +406,7 @@ export function CallRoom({
               active={connected && speakerEnabled}
               color="var(--peer)"
               bars={18}
-              className="w-full max-w-[110px]"
+              className="hidden w-full max-w-[110px] sm:flex"
               mirrored
             />
 
@@ -407,18 +425,43 @@ export function CallRoom({
             />
           </div>
 
+          {/* The meters, for viewports too narrow to sit them beside the
+              avatars. */}
+          <div className="mt-5 flex items-center gap-3 sm:hidden">
+            <AudioWaveform
+              stream={localStream}
+              active={connected && micEnabled}
+              color="var(--accent)"
+              bars={20}
+              className="min-w-0 flex-1"
+            />
+            <AudioWaveform
+              stream={remoteStream}
+              active={connected && speakerEnabled}
+              color="var(--peer)"
+              bars={20}
+              className="min-w-0 flex-1"
+              mirrored
+            />
+          </div>
+
           {/* Names + the direction of translation */}
-          <div className="mt-6 grid grid-cols-[1fr_auto_1fr] items-start gap-4">
-            <div className="text-center">
-              <p className="text-xl font-bold tracking-tight">{self.displayName}</p>
-              <p className="text-sm text-[var(--muted)]">@{self.username}</p>
+          {/* Two columns on a phone with the translation badge dropped onto
+              its own row beneath: squeezed between the names it left them
+              about a third of the width each, truncating most real names. */}
+          <div className="mt-6 grid grid-cols-2 items-start gap-3 sm:grid-cols-[1fr_auto_1fr] sm:gap-4">
+            <div className="min-w-0 text-center">
+              <p className="truncate text-lg font-bold tracking-tight sm:text-xl">
+                {self.displayName}
+              </p>
+              <p className="truncate text-sm text-[var(--muted)]">@{self.username}</p>
               <p className="mt-1 text-sm">
                 {LANGUAGE_FLAG[self.preferredLanguage]}{" "}
                 <span className="text-[var(--muted)]">{selfLanguage?.label}</span>
               </p>
             </div>
 
-            <div className="flex flex-col items-center gap-1.5 pt-1">
+            <div className="order-last col-span-2 flex flex-col items-center gap-1.5 pt-1 sm:order-none sm:col-span-1">
               <span
                 className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
                   isTranslating
@@ -435,9 +478,11 @@ export function CallRoom({
               </span>
             </div>
 
-            <div className="text-center">
-              <p className="text-xl font-bold tracking-tight">{other.displayName}</p>
-              <p className="text-sm text-[var(--muted)]">@{other.username}</p>
+            <div className="min-w-0 text-center">
+              <p className="truncate text-lg font-bold tracking-tight sm:text-xl">
+                {other.displayName}
+              </p>
+              <p className="truncate text-sm text-[var(--muted)]">@{other.username}</p>
               <p className="mt-1 text-sm">
                 {LANGUAGE_FLAG[other.preferredLanguage]}{" "}
                 <span className="text-[var(--muted)]">{otherLanguage?.label}</span>
@@ -518,7 +563,7 @@ export function CallRoom({
         </section>
 
         {/* --- transcript ------------------------------------------------- */}
-        <aside className="card-lit animate-rise flex min-h-0 flex-col rounded-3xl p-5">
+        <aside className="card-lit animate-rise flex min-h-0 min-w-0 flex-col rounded-3xl p-4 sm:p-5">
           <LiveCaptions
             captions={captions}
             liveTranscript={liveTranscript}
