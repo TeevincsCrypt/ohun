@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 /** Routes that require a signed-in user. */
-const PROTECTED_PREFIXES = ["/people", "/call", "/profile"];
+const PROTECTED_PREFIXES = ["/people", "/call", "/room", "/profile"];
 
 /** Signed-in users are bounced away from these. */
 const AUTH_ONLY_PREFIXES = ["/login", "/signup"];

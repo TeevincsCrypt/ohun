@@ -54,6 +54,15 @@ interface SessionOptions {
   speakLocally?: boolean;
   /** Fired once an utterance has been translated, for delivery to the peer. */
   onTranslation?: (payload: TranslationPayload) => void;
+  /**
+   * Skip the built-in one-to-one translation and hand each finished
+   * utterance to onUtterance instead. A group call needs the same sentence
+   * in several languages at once, which this hook's single `targetLanguage`
+   * cannot express — so the caller does that part itself.
+   */
+  translateManually?: boolean;
+  /** Receives each completed utterance when translateManually is set. */
+  onUtterance?: (text: string) => void | Promise<void>;
 }
 
 /**
@@ -65,7 +74,9 @@ export function useTranscriptionSession({
   language,
   targetLanguage,
   speakLocally = true,
+  translateManually = false,
   onTranslation,
+  onUtterance,
 }: SessionOptions) {
   const [state, setState] = useState<TranscriptionSessionState>(initialState);
 
@@ -97,6 +108,9 @@ export function useTranscriptionSession({
   // media effect on every render and tear down a live transcription stream.
   const onTranslationRef = useRef(onTranslation);
   onTranslationRef.current = onTranslation;
+
+  const onUtteranceRef = useRef(onUtterance);
+  onUtteranceRef.current = onUtterance;
 
   const composeTranscript = useCallback(
     () => [priorTurnsRef.current, currentTurnTextRef.current].filter(Boolean).join(" "),
@@ -142,6 +156,34 @@ export function useTranscriptionSession({
       }));
     }
   }, [teardown]);
+
+  /**
+   * Hands a finished utterance to the caller, which owns the translation.
+   * Mirrors translateAndSpeak's state handling so the "Translating…"
+   * indicator behaves the same in either mode.
+   */
+  const delegateUtterance = useCallback(
+    async (text: string, isCurrent: () => boolean) => {
+      if (isCurrent()) {
+        setState((current) => ({ ...current, isTranslating: true, translationError: null }));
+      }
+      try {
+        await onUtteranceRef.current?.(text);
+      } catch (error) {
+        console.error("[ohun] utterance handler failed", error);
+        if (!isCurrent()) return;
+        setState((current) => ({
+          ...current,
+          translationError: "Could not translate that.",
+        }));
+      } finally {
+        if (isCurrent()) {
+          setState((current) => ({ ...current, isTranslating: false }));
+        }
+      }
+    },
+    [],
+  );
 
   /** Translate one finished utterance, then speak it in the listener's language. */
   const translateAndSpeak = useCallback(
@@ -250,7 +292,11 @@ export function useTranscriptionSession({
           // and produce translations of half-finished sentences.
           if (isFinal && text.trim() && !translatedTurnsRef.current.has(turnOrder)) {
             translatedTurnsRef.current.add(turnOrder);
-            void translateAndSpeak(text, isCurrent);
+            if (translateManually) {
+              void delegateUtterance(text, isCurrent);
+            } else {
+              void translateAndSpeak(text, isCurrent);
+            }
           }
         },
         onError: (error) => {
@@ -297,7 +343,15 @@ export function useTranscriptionSession({
       fail(message);
       await teardown();
     }
-  }, [composeTranscript, language, resetTranscriptState, teardown, translateAndSpeak]);
+  }, [
+    composeTranscript,
+    delegateUtterance,
+    language,
+    resetTranscriptState,
+    teardown,
+    translateAndSpeak,
+    translateManually,
+  ]);
 
   // Resolved after mount so server and first client render agree.
   const [canSpeakAloud, setCanSpeakAloud] = useState(false);

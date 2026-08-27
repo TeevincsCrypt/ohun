@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { startCall, touchPresence } from "@/lib/calls/actions";
+import { createRoom } from "@/lib/rooms/actions";
 import { listScheduledCalls } from "@/lib/schedule/actions";
 import { UserResult } from "@/components/ohun/UserResult";
 import { UpcomingCalls } from "@/components/ohun/UpcomingCalls";
@@ -12,7 +13,7 @@ import { UpgradeDialog } from "@/components/ohun/UpgradeDialog";
 import { RecentActivity } from "@/components/ohun/RecentActivity";
 import { Pill } from "@/components/ui";
 import { PROFILE_COLUMNS, toProfile, type ProfileRow } from "@/lib/supabase/profile";
-import type { Profile, ScheduledCall } from "@/types";
+import { PROFILE_SEARCH_LIMIT, type Profile, type ScheduledCall } from "@/types";
 
 const PRESENCE_INTERVAL_MS = 30_000;
 
@@ -30,6 +31,7 @@ export function PeopleClient({ self }: { self: Profile }) {
   const [scheduling, setScheduling] = useState<Profile | null>(null);
   const [scheduled, setScheduled] = useState<ScheduledCall[]>([]);
   const [showUpgrade, setShowUpgrade] = useState(false);
+  const [startingRoom, setStartingRoom] = useState(false);
   const requestRef = useRef(0);
 
   const refreshScheduled = useCallback(() => {
@@ -66,7 +68,7 @@ export function PeopleClient({ self }: { self: Profile }) {
         // Anonymous room-link visitors have profiles so calls work, but
         // they are throwaway identities and must not clutter search.
         .eq("is_guest", false)
-        .limit(20);
+        .limit(PROFILE_SEARCH_LIMIT);
 
       // A newer keystroke already superseded this request.
       if (generation !== requestRef.current) return;
@@ -114,6 +116,19 @@ export function PeopleClient({ self }: { self: Profile }) {
     [router],
   );
 
+  /** Opens an empty group call; people are added from inside it. */
+  const startGroupCall = useCallback(async () => {
+    setStartingRoom(true);
+    setError(null);
+    const { roomId, error: roomError } = await createRoom();
+    if (roomError || !roomId) {
+      setError(roomError ?? "Could not start the call.");
+      setStartingRoom(false);
+      return;
+    }
+    router.push(`/room/${roomId}`);
+  }, [router]);
+
   return (
     <>
       {showUpgrade && <UpgradeDialog onClose={() => setShowUpgrade(false)} />}
@@ -160,6 +175,20 @@ export function PeopleClient({ self }: { self: Profile }) {
             />
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={() => void startGroupCall()}
+          disabled={startingRoom}
+          className="flex items-center justify-center gap-2 rounded-xl border border-[var(--accent-border)] bg-[var(--accent-soft)] px-4 py-3 text-sm font-medium text-[var(--accent)] transition-opacity hover:opacity-85 disabled:opacity-50"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M16 20v-1a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v1" />
+            <circle cx="9.5" cy="8" r="3" />
+            <path d="M18 8h4M20 6v4" />
+          </svg>
+          {startingRoom ? "Starting…" : "Start a group call"}
+        </button>
 
         {error && (
           <Pill tone="error" className="w-full justify-center text-center">

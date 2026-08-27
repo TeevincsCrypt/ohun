@@ -86,6 +86,9 @@ export function validateDisplayName(displayName: string): string | null {
 export const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
 export const AVATAR_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
+/** How many people a username search returns. */
+export const PROFILE_SEARCH_LIMIT = 20;
+
 /** Treated as online if seen within this window. */
 export const ONLINE_WINDOW_MS = 60_000;
 
@@ -236,4 +239,74 @@ export function callOutcome({
   if (status === "declined") return "declined";
   if (connected) return "completed";
   return outgoing ? "cancelled" : "missed";
+}
+
+// --- group calls -----------------------------------------------------------
+
+/** Hard ceiling, mirrored by the room_capacity trigger in schema.sql. */
+export const MAX_ROOM_PARTICIPANTS = 7;
+
+export type RoomStatus = "live" | "ended";
+export type ParticipantState = "invited" | "joined" | "left" | "declined";
+
+export interface RoomParticipant {
+  userId: string;
+  /** Snapshotted at join, so a later profile edit cannot change a live room. */
+  language: CallLanguageCode;
+  state: ParticipantState;
+  invitedBy: string | null;
+  profile: Pick<Profile, "id" | "username" | "displayName" | "avatarUrl">;
+}
+
+export interface Room {
+  id: string;
+  hostId: string;
+  status: RoomStatus;
+  createdAt: string;
+  participants: RoomParticipant[];
+}
+
+/** Everyone who counts against the cap — in the room, or on their way in. */
+export function activeParticipants(room: Pick<Room, "participants">): RoomParticipant[] {
+  return room.participants.filter(
+    (participant) => participant.state === "invited" || participant.state === "joined",
+  );
+}
+
+export function roomIsFull(room: Pick<Room, "participants">): boolean {
+  return activeParticipants(room).length >= MAX_ROOM_PARTICIPANTS;
+}
+
+/**
+ * The languages one speaker has to be translated into: every language in the
+ * room except their own, deduplicated.
+ *
+ * Deduplicating is what keeps the cost sane. Six listeners who all speak
+ * French are one translation, not six.
+ */
+export function targetLanguagesFor(
+  room: Pick<Room, "participants">,
+  speakerId: string,
+): CallLanguageCode[] {
+  const speaker = room.participants.find((participant) => participant.userId === speakerId);
+  if (!speaker) return [];
+
+  const targets = new Set<CallLanguageCode>();
+  for (const participant of activeParticipants(room)) {
+    if (participant.userId === speakerId) continue;
+    if (participant.language === speaker.language) continue;
+    targets.add(participant.language);
+  }
+  return [...targets];
+}
+
+/** One utterance in a group call, translated for every language present. */
+export interface RoomCaption {
+  id: string;
+  speakerId: string;
+  /** What was said, in the speaker's own language. */
+  originalText: string;
+  /** Keyed by target language; the listener picks their own. */
+  byLanguage: Partial<Record<CallLanguageCode, string>>;
+  at: number;
 }

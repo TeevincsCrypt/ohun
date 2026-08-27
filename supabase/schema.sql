@@ -465,3 +465,166 @@ begin
   execute 'alter table public.calls add constraint calls_receiver_language_check
            check (receiver_language' || allowed || ')';
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- Phase 10: group calls.
+--
+-- Kept as its own pair of tables rather than widening `calls`, which is
+-- structurally one-to-one (caller_id/receiver_id) and still serves every
+-- existing direct call. Nothing here touches that path.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.rooms (
+  id         uuid primary key default gen_random_uuid(),
+  host_id    uuid not null references public.profiles(id) on delete cascade,
+  status     text not null default 'live' check (status in ('live', 'ended')),
+  created_at timestamptz not null default now(),
+  ended_at   timestamptz
+);
+
+create index if not exists rooms_host_idx on public.rooms (host_id, created_at desc);
+
+create table if not exists public.room_participants (
+  room_id    uuid not null references public.rooms(id) on delete cascade,
+  user_id    uuid not null references public.profiles(id) on delete cascade,
+  -- Snapshotted, like calls.caller_language: a profile edit mid-call must
+  -- not silently change which language someone is being translated into.
+  language   text not null check (language in ('en', 'fr', 'es', 'de', 'pt', 'it')),
+  invited_by uuid references public.profiles(id) on delete set null,
+  state      text not null default 'invited'
+             check (state in ('invited', 'joined', 'left', 'declined')),
+  joined_at  timestamptz,
+  left_at    timestamptz,
+  created_at timestamptz not null default now(),
+  primary key (room_id, user_id)
+);
+
+create index if not exists room_participants_user_idx
+  on public.room_participants (user_id, state);
+
+-- ---------------------------------------------------------------------------
+-- Membership test used by every policy below.
+--
+-- SECURITY DEFINER on purpose. The obvious policy — "you may read
+-- room_participants rows for rooms you are a participant of" — has to query
+-- room_participants to answer that, which re-enters the same policy and
+-- recurses until Postgres gives up. Reading membership through a definer
+-- function runs that lookup with RLS bypassed, which breaks the cycle.
+--
+-- It is safe to expose: it answers only a yes/no about the caller's own
+-- membership and returns no row data.
+-- ---------------------------------------------------------------------------
+create or replace function public.is_room_participant(target_room uuid, target_user uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.room_participants
+    where room_id = target_room
+      and user_id = target_user
+      and state <> 'declined'
+  );
+$$;
+
+revoke all on function public.is_room_participant(uuid, uuid) from public, anon;
+grant execute on function public.is_room_participant(uuid, uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Cap the room size. A check constraint cannot count sibling rows, so this
+-- is a trigger. Declined and departed participants do not count against the
+-- cap — only people currently in or on their way into the room.
+--
+-- It has to cover UPDATE as well as INSERT. Someone who left keeps their
+-- row, so rejoining is an UPDATE back into 'joined'; on INSERT alone a full
+-- room could be pushed past the cap by a leaver rejoining into a seat that
+-- had already been given away.
+-- ---------------------------------------------------------------------------
+create or replace function public.enforce_room_capacity()
+returns trigger
+language plpgsql
+as $$
+declare
+  occupants integer;
+begin
+  -- Only entering the room can overfill it. Leaving, declining, or editing
+  -- a row that is already seated is always allowed.
+  if tg_op = 'UPDATE'
+     and (old.state in ('invited', 'joined') or new.state not in ('invited', 'joined'))
+  then
+    return new;
+  end if;
+
+  select count(*) into occupants
+  from public.room_participants
+  where room_id = new.room_id
+    and state in ('invited', 'joined')
+    and user_id <> new.user_id;
+
+  if occupants >= 7 then
+    raise exception 'This call is full (7 people maximum).'
+      using errcode = 'check_violation';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists room_capacity on public.room_participants;
+create trigger room_capacity
+  before insert or update of state on public.room_participants
+  for each row execute function public.enforce_room_capacity();
+
+alter table public.rooms enable row level security;
+alter table public.room_participants enable row level security;
+
+drop policy if exists "read rooms you are in" on public.rooms;
+create policy "read rooms you are in" on public.rooms
+  for select to authenticated
+  using (public.is_room_participant(id, auth.uid()));
+
+drop policy if exists "create your own room" on public.rooms;
+create policy "create your own room" on public.rooms
+  for insert to authenticated
+  with check (host_id = auth.uid());
+
+-- Anyone in the room may end it, which is what lets the last person out
+-- close it rather than leaving a live room nobody is in.
+drop policy if exists "update rooms you are in" on public.rooms;
+create policy "update rooms you are in" on public.rooms
+  for update to authenticated
+  using (public.is_room_participant(id, auth.uid()));
+
+drop policy if exists "read participants of your rooms" on public.room_participants;
+create policy "read participants of your rooms" on public.room_participants
+  for select to authenticated
+  using (public.is_room_participant(room_id, auth.uid()));
+
+-- Adding people is open to anyone already in the room, so a call can grow
+-- without routing every invite through the host. Adding *yourself* is how
+-- the host's own first row is created.
+drop policy if exists "add people to your rooms" on public.room_participants;
+create policy "add people to your rooms" on public.room_participants
+  for insert to authenticated
+  with check (
+    user_id = auth.uid()
+    or public.is_room_participant(room_id, auth.uid())
+  );
+
+-- You may only move your own row: accept, decline, join, leave.
+drop policy if exists "update your own participation" on public.room_participants;
+create policy "update your own participation" on public.room_participants
+  for update to authenticated
+  using (user_id = auth.uid());
+
+do $$ begin
+  alter publication supabase_realtime add table public.rooms;
+exception when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter publication supabase_realtime add table public.room_participants;
+exception when duplicate_object then null;
+end $$;

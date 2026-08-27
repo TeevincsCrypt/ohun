@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { IncomingCallDialog } from "./IncomingCallDialog";
+import { RoomInviteWatcher } from "./RoomInviteWatcher";
 
 /**
  * Keeps a signed-in user reachable on every page, not just /people.
@@ -47,16 +48,16 @@ export function IncomingCallWatcher() {
   }, [configured]);
 
   if (!userId) return null;
-  if (pathname?.startsWith("/call/")) return null;
+  // Already in a call of either kind — do not interrupt it with another.
+  if (pathname?.startsWith("/call/") || pathname?.startsWith("/room/")) return null;
 
   // `theme-dark` lives on each page's own wrapper div, but this renders as a
-  // sibling of {children} in <body> — outside it. Without re-declaring the
-  // theme here the call UI picks up the light palette and renders wrong on
-  // the dark app pages. Calls are app chrome, so they stay dark everywhere,
-  // including over the light marketing page.
+  // sibling of {children} in <body> — outside it. Re-declared here so the
+  // call UI is styled correctly wherever it appears.
   return (
     <div className="theme-dark">
       <IncomingCallDialog selfId={userId} />
+      <RoomInviteWatcher selfId={userId} />
     </div>
   );
 }
