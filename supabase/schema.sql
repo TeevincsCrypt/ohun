@@ -580,10 +580,16 @@ create trigger room_capacity
 alter table public.rooms enable row level security;
 alter table public.room_participants enable row level security;
 
+-- The host clause is not redundant with the membership test. Creating a
+-- room and seating its host are two statements, so between them the host
+-- is not yet a participant — and `insert ... returning` runs this policy
+-- to decide whether the new row may be read back. Without the host clause
+-- the insert succeeds and the RETURNING comes back empty, which reads to
+-- the caller as "could not create the room".
 drop policy if exists "read rooms you are in" on public.rooms;
 create policy "read rooms you are in" on public.rooms
   for select to authenticated
-  using (public.is_room_participant(id, auth.uid()));
+  using (host_id = auth.uid() or public.is_room_participant(id, auth.uid()));
 
 drop policy if exists "create your own room" on public.rooms;
 create policy "create your own room" on public.rooms

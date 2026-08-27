@@ -76,7 +76,13 @@ export async function createRoom(): Promise<RoomResult> {
     .select("id")
     .single();
 
-  if (roomError || !room) return { error: "Could not start the call." };
+  if (roomError || !room) {
+    // Logged in full because every failure here surfaces to the user as the
+    // same sentence: a missing table, an RLS refusal and a constraint
+    // violation are indistinguishable without this.
+    console.error("[ohun/rooms] could not create room", roomError);
+    return { error: "Could not start the call." };
+  }
 
   const { error: seatError } = await supabase.from("room_participants").insert({
     room_id: room.id,
@@ -86,7 +92,18 @@ export async function createRoom(): Promise<RoomResult> {
     joined_at: new Date().toISOString(),
   });
 
-  if (seatError) return { error: "Could not start the call." };
+  // Creating the room and seating its host are two statements, so a failure
+  // here would otherwise leave a room nobody is in and nobody can reach.
+  // Mark it ended rather than deleting, so the two paths that close a room
+  // stay the same one.
+  if (seatError) {
+    console.error("[ohun/rooms] could not seat host", seatError);
+    await supabase
+      .from("rooms")
+      .update({ status: "ended" satisfies RoomStatus, ended_at: new Date().toISOString() })
+      .eq("id", room.id);
+    return { error: "Could not start the call." };
+  }
 
   return { roomId: room.id as string };
 }
@@ -141,6 +158,7 @@ export async function inviteToRoom(
   );
 
   if (error) {
+    console.error("[ohun/rooms] could not invite", error);
     // The capacity trigger raises check_violation; surface its message
     // rather than a generic failure.
     return {
@@ -175,6 +193,7 @@ export async function setParticipantState(
     .eq("user_id", user.id);
 
   if (error) {
+    console.error("[ohun/rooms] could not update participation", error);
     return {
       error: /full/i.test(error.message)
         ? "That call is full now."
