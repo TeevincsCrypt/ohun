@@ -55,10 +55,24 @@ export default async function PeoplePage() {
           Talk to anyone,{" "}
           <span className="text-[var(--accent)]">in any language</span>
         </h1>
-        <p className="mt-2 mb-8 text-[var(--muted)]">
+        <p className="mt-2 text-[var(--muted)]">
           Speak {getCallLanguage(profile.preferredLanguage)?.label ?? "your language"} — they hear
           their own, translated live.
         </p>
+
+        {/* The room link is the low-friction way in for anyone who is not
+            already on OHUN, so it belongs on the main surface, not buried
+            in settings. */}
+        <Link
+          href="/profile"
+          className="mt-4 mb-8 inline-flex items-center gap-2 rounded-full border border-[var(--accent-border)] bg-[var(--accent-soft)] px-4 py-2 text-sm font-medium text-[var(--accent)] transition-opacity hover:opacity-85"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
+            <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5" />
+            <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5" />
+          </svg>
+          Share your room link — no account needed to call you
+        </Link>
         <PeopleClient self={profile} />
       </main>
     </div>

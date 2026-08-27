@@ -19,3 +19,4 @@ export * from "./ScheduleCallDialog";
 export * from "./RecentActivity";
 export * from "./UpgradeDialog";
 export * from "./TiunProvider";
+export * from "./RoomLinkCard";

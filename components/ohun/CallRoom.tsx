@@ -129,13 +129,17 @@ export function CallRoom({
     attachRemoteAudio(audioRef.current);
   }, [attachRemoteAudio]);
 
-  // Once the call is over, return to People rather than stranding the user.
+  // Once the call is over, return somewhere useful rather than stranding
+  // the user. A guest who joined by room link has no contacts and nothing
+  // to search for, so People would be an empty room — send them to the
+  // landing page, which is also where signing up is offered.
   useEffect(() => {
     if (connectionState === "ended" || connectionState === "declined") {
-      const timer = setTimeout(() => router.push("/people"), 1800);
+      const destination = self.isGuest ? "/" : "/people";
+      const timer = setTimeout(() => router.push(destination), 1800);
       return () => clearTimeout(timer);
     }
-  }, [connectionState, router]);
+  }, [connectionState, router, self.isGuest]);
 
   const otherLanguage = getCallLanguage(other.preferredLanguage);
   const selfLanguage = getCallLanguage(self.preferredLanguage);

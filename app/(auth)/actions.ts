@@ -1,31 +1,15 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createClient, SupabaseConfigError } from "@/lib/supabase/server";
+import { siteOrigin } from "@/lib/site-origin";
 import { isCallLanguage, validateUsername } from "@/types";
 
 export interface AuthFormState {
   error: string | null;
   /** A non-error notice, e.g. "check your email to confirm your account". */
   info?: string | null;
-}
-
-/**
- * Absolute base URL for links Supabase emails out.
- *
- * Prefers the configured site URL; falls back to the request's own host so
- * a preview deployment confirms against itself rather than production.
- */
-async function siteOrigin(): Promise<string> {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL;
-  if (configured) return configured.replace(/\/$/, "");
-
-  const headerList = await headers();
-  const host = headerList.get("x-forwarded-host") ?? headerList.get("host");
-  const protocol = headerList.get("x-forwarded-proto") ?? "https";
-  return host ? `${protocol}://${host}` : "http://localhost:3000";
 }
 
 const CONFIG_ERROR_MESSAGE =

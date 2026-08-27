@@ -6,6 +6,7 @@ import { updateAvatar, updateProfile, removeAvatar, type ProfileFormState } from
 import { getBillingStatus } from "@/lib/billing/actions";
 import { Avatar } from "@/components/ohun/UserResult";
 import { UpgradeDialog } from "@/components/ohun/UpgradeDialog";
+import { RoomLinkCard } from "@/components/ohun/RoomLinkCard";
 import { Button, Card, Pill } from "@/components/ui";
 import { AVATAR_MAX_BYTES, CALL_LANGUAGES, LANGUAGE_FLAG, type BillingStatus, type Profile } from "@/types";
 
@@ -239,9 +240,10 @@ function PlanSection() {
   );
 }
 
-export function ProfileClient({ profile }: { profile: Profile }) {
+export function ProfileClient({ profile, origin }: { profile: Profile; origin: string }) {
   return (
     <div className="flex flex-col gap-6">
+      <RoomLinkCard slug={profile.roomSlug} origin={origin} />
       <PlanSection />
       <AvatarSection profile={profile} />
       <DetailsSection profile={profile} />

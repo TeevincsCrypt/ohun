@@ -329,3 +329,90 @@ create index if not exists calls_caller_created_idx
   on public.calls (caller_id, created_at desc);
 create index if not exists calls_receiver_created_idx
   on public.calls (receiver_id, created_at desc);
+
+-- ---------------------------------------------------------------------------
+-- Phase 8: shareable room links.
+--
+-- A room link is "dial this person" as a URL, so it can go in a bio and be
+-- opened by someone with no account. Two things follow from that:
+--
+--   * The slug is random and rotatable rather than being the username. A
+--     link posted publicly is one you may need to revoke after it attracts
+--     the wrong attention, and you cannot revoke a username.
+--   * Visitors without an account sign in anonymously, which creates a real
+--     auth.users row — so RLS, the calls table and the profile trigger all
+--     work unchanged rather than needing a parallel guest path.
+-- ---------------------------------------------------------------------------
+
+-- 10 chars of base32-ish alphabet, ambiguous characters removed so a slug
+-- can be read aloud or copied off a screen without confusion.
+create or replace function public.generate_room_slug()
+returns text
+language sql
+volatile
+as $$
+  select string_agg(
+    substr('abcdefghjkmnpqrstuvwxyz23456789', floor(random() * 31)::int + 1, 1),
+    ''
+  )
+  from generate_series(1, 10);
+$$;
+
+alter table public.profiles
+  add column if not exists room_slug text,
+  -- Anonymous visitors get a profile so calls work, but they are not real
+  -- accounts: they must not surface in username search.
+  add column if not exists is_guest boolean not null default false;
+
+-- Backfill existing rows before the unique index goes on.
+update public.profiles set room_slug = public.generate_room_slug()
+where room_slug is null;
+
+alter table public.profiles
+  alter column room_slug set default public.generate_room_slug();
+
+create unique index if not exists profiles_room_slug_key
+  on public.profiles (room_slug);
+
+-- room_slug is how a link is revoked, so it must not be writable by the
+-- client directly — rotation goes through a server action that regenerates
+-- it. is_guest decides search visibility and must not be self-serve either.
+revoke update (room_slug, is_guest) on public.profiles from authenticated, anon;
+
+-- ---------------------------------------------------------------------------
+-- The signup trigger has to cope with anonymous users now: they arrive with
+-- no email and no metadata, so the previous split_part(new.email, ...) would
+-- have produced a null display name and a null username.
+-- ---------------------------------------------------------------------------
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  meta_username text := lower(new.raw_user_meta_data ->> 'username');
+  is_anon boolean := new.email is null;
+begin
+  insert into public.profiles (id, username, display_name, preferred_language, is_guest)
+  values (
+    new.id,
+    -- Guests never pick a username; generate one that cannot collide with
+    -- a real signup, which is constrained to 3-20 chars of [a-z0-9_].
+    coalesce(meta_username, 'guest_' || substr(replace(new.id::text, '-', ''), 1, 12)),
+    coalesce(
+      new.raw_user_meta_data ->> 'display_name',
+      case when is_anon then 'Guest' else split_part(new.email, '@', 1) end
+    ),
+    -- Metadata is client-supplied, so an unexpected value would otherwise
+    -- trip the check constraint and fail the whole signup. Coerce instead.
+    case
+      when new.raw_user_meta_data ->> 'preferred_language' in ('en', 'fr', 'es')
+        then new.raw_user_meta_data ->> 'preferred_language'
+      else 'en'
+    end,
+    is_anon
+  );
+  return new;
+end;
+$$;

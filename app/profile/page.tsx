@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getCurrentProfile } from "@/lib/supabase/server";
+import { siteOrigin } from "@/lib/site-origin";
 import { signOut } from "@/app/(auth)/actions";
 import { Logo } from "@/components/ohun";
 import { ProfileClient } from "./ProfileClient";
@@ -11,6 +12,8 @@ export const dynamic = "force-dynamic";
 export default async function ProfilePage() {
   const profile = await getCurrentProfile();
   if (!profile) redirect("/login");
+
+  const origin = await siteOrigin();
 
   return (
     <div className="theme-dark flex flex-1 flex-col bg-[var(--background)] text-[var(--foreground)]">
@@ -39,7 +42,7 @@ export default async function ProfilePage() {
         <p className="mt-2 mb-8 text-[var(--muted)]">
           This is what other people see when they find you.
         </p>
-        <ProfileClient profile={profile} />
+        <ProfileClient profile={profile} origin={origin} />
       </main>
     </div>
   );

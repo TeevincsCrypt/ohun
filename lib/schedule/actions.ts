@@ -1,8 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { siteOrigin } from "@/lib/site-origin";
 import { getUserEmails, AdminNotConfiguredError } from "@/lib/supabase/admin";
 import { sendEmail, isEmailConfigured } from "@/lib/email/client";
 import { scheduledCallEmail } from "@/lib/email/templates";
@@ -16,17 +16,6 @@ export interface ScheduleResult {
 
 /** Furthest ahead a call may be booked. Keeps the list meaningful. */
 const MAX_LEAD_MS = 90 * 24 * 60 * 60 * 1000;
-
-/** Absolute origin for links in outbound mail. */
-async function siteOrigin(): Promise<string> {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL;
-  if (configured) return configured.replace(/\/$/, "");
-
-  const headerList = await headers();
-  const host = headerList.get("x-forwarded-host") ?? headerList.get("host");
-  const protocol = headerList.get("x-forwarded-proto") ?? "https";
-  return host ? `${protocol}://${host}` : "http://localhost:3000";
-}
 
 interface NotifyInput {
   organizerId: string;

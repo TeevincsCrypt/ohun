@@ -52,6 +52,15 @@ export interface Profile {
   lastSeenAt: string;
   avatarUrl: string | null;
   phone: string | null;
+  /** Slug behind this account's shareable room link. */
+  roomSlug: string;
+  /** True for an anonymous visitor who joined through a room link. */
+  isGuest: boolean;
+}
+
+/** Public room URL for a profile, e.g. https://ohun.app/r/kp3nx7qw2m */
+export function roomUrl(origin: string, slug: string): string {
+  return `${origin.replace(/\/$/, "")}/r/${slug}`;
 }
 
 /** E.164: a leading + and 7-15 digits. Mirrors the DB constraint. */

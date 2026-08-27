@@ -63,6 +63,9 @@ export function PeopleClient({ self }: { self: Profile }) {
         .select(PROFILE_COLUMNS)
         .or(`username.ilike.${pattern},display_name.ilike.${pattern}`)
         .neq("id", self.id)
+        // Anonymous room-link visitors have profiles so calls work, but
+        // they are throwaway identities and must not clutter search.
+        .eq("is_guest", false)
         .limit(20);
 
       // A newer keystroke already superseded this request.
