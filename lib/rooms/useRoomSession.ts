@@ -7,8 +7,10 @@ import { createAudioMesh, type AudioMesh, type MeshSignal } from "@/lib/webrtc/m
 import { useTranscriptionSession } from "@/lib/assemblyai/useTranscriptionSession";
 import { SpeechQueue } from "@/lib/audio/queue";
 import { setParticipantState } from "./actions";
+import { recordUtterance } from "@/lib/summary/actions";
 import {
   activeParticipants,
+  isCallLanguage,
   targetLanguagesFor,
   type CallLanguageCode,
   type Room,
@@ -136,8 +138,9 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
       // Targets are computed against what was actually spoken, so someone
       // answering in another participant's language is not translated back
       // into it pointlessly.
+      const spoken = isCallLanguage(spokenLanguage) ? spokenLanguage : myLanguage;
       const targets = targetLanguagesFor(roomRef.current, selfId).filter(
-        (code) => code !== spokenLanguage,
+        (code) => code !== spoken,
       );
 
       // Everyone in the room already speaks my language: nothing to do.
@@ -146,7 +149,7 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
       const response = await fetch("/api/translate-many", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, from: spokenLanguage, to: targets }),
+        body: JSON.stringify({ text, from: spoken, to: targets }),
       });
 
       if (!response.ok) {
@@ -157,6 +160,11 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
       const { byLanguage } = (await response.json()) as {
         byLanguage: Partial<Record<CallLanguageCode, string>>;
       };
+
+      void recordUtterance(
+        { roomId: initialRoom.id },
+        { originalText: text, spokenLanguage: spoken, translations: byLanguage },
+      );
 
       const message: CaptionMessage = {
         id: `${selfId}-${Date.now()}`,

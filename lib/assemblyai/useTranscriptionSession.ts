@@ -38,6 +38,8 @@ export interface TranslationPayload {
   originalText: string;
   /** The same utterance rendered in the listener's language. */
   translatedText: string;
+  /** The language it was actually spoken in — detected, not assumed. */
+  spokenLanguage: LanguageCode;
 }
 
 interface SessionOptions {
@@ -253,7 +255,7 @@ export function useTranscriptionSession({
           isTranslating: false,
         }));
 
-        onTranslationRef.current?.({ originalText: text, translatedText });
+        onTranslationRef.current?.({ originalText: text, translatedText, spokenLanguage });
 
         if (speakLocally) {
           await speak({ text: translatedText, languageCode: localeFor(targetLanguage) });

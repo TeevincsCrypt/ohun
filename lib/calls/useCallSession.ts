@@ -10,7 +10,9 @@ import {
 } from "@/lib/assemblyai/useTranscriptionSession";
 import { speak, localeFor } from "@/lib/audio/player";
 import { setCallStatus } from "./actions";
+import { recordUtterance } from "@/lib/summary/actions";
 import {
+  isCallLanguage,
   isTerminalStatus,
   type Call,
   type CallCaption,
@@ -156,11 +158,24 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
     languages: [myLanguage, theirLanguage],
     targetLanguage: theirLanguage,
     speakLocally: false,
-    onTranslation: ({ originalText, translatedText }) => {
+    onTranslation: ({ originalText, translatedText, spokenLanguage }) => {
+      // The transcriber only ever sees this call's languages, so detection
+      // cannot return anything outside them — but narrow rather than assert,
+      // since LanguageCode also covers languages calls do not support.
+      const spoken = isCallLanguage(spokenLanguage) ? spokenLanguage : myLanguage;
+
+      // Stored so the call can be summarised afterwards. Deliberately not
+      // awaited: a transcript row failing to save must not interrupt a call.
+      void recordUtterance(
+        { callId: call.id },
+        { originalText, spokenLanguage: spoken, translations: { [theirLanguage]: translatedText } },
+      );
+
       const message: CaptionMessage = {
         id: `${selfId}-${Date.now()}`,
         originalText,
         translatedText,
+        spokenLanguage: spoken,
       };
 
       appendCaption({

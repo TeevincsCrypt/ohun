@@ -319,3 +319,9 @@ export interface RoomCaption {
   byLanguage: Partial<Record<CallLanguageCode, string>>;
   at: number;
 }
+
+/** A generated recap of a finished call, one per language spoken in it. */
+export interface CallSummary {
+  byLanguage: Partial<Record<CallLanguageCode, string>>;
+  createdAt: string;
+}

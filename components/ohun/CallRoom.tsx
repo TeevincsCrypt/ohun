@@ -6,6 +6,7 @@ import { useCallSession } from "@/lib/calls/useCallSession";
 import { Avatar } from "./UserResult";
 import { AudioWaveform } from "./AudioWaveform";
 import { LiveCaptions } from "./LiveCaptions";
+import { CallSummaryPanel } from "./CallSummaryPanel";
 import { Logo } from "./Logo";
 import {
   LANGUAGE_FLAG,
@@ -245,17 +246,32 @@ export function CallRoom({
     attachRemoteAudio(audioRef.current);
   }, [attachRemoteAudio]);
 
-  // Once the call is over, return somewhere useful rather than stranding
-  // the user. A guest who joined by room link has no contacts, so People
-  // would be an empty room — send them to the landing page, which is also
-  // where signing up is offered.
+  // A guest who joined by room link has no contacts, so People would be an
+  // empty room — send them to the landing page, which is also where signing
+  // up is offered.
+  const exitTo = self.isGuest ? "/" : "/people";
+
+  // A declined call has nothing to summarise, so it still leaves on its own.
+  // An ended one stops and offers the recap instead of navigating away.
   useEffect(() => {
-    if (connectionState === "ended" || connectionState === "declined") {
-      const destination = self.isGuest ? "/" : "/people";
-      const timer = setTimeout(() => router.push(destination), 1800);
+    if (connectionState === "declined") {
+      const timer = setTimeout(() => router.push(exitTo), 1800);
       return () => clearTimeout(timer);
     }
-  }, [connectionState, router, self.isGuest]);
+  }, [connectionState, router, exitTo]);
+
+  if (connectionState === "ended") {
+    return (
+      <div className="theme-dark flex min-h-0 flex-1 flex-col justify-center bg-[var(--background)] px-4 py-10 text-[var(--foreground)]">
+        <CallSummaryPanel
+          callRef={{ callId: call.id }}
+          myLanguage={self.preferredLanguage}
+          onDone={() => router.push(exitTo)}
+          doneLabel={self.isGuest ? "Done" : "Back to People"}
+        />
+      </div>
+    );
+  }
 
   const connected = connectionState === "connected";
   const selfLanguage = getCallLanguage(self.preferredLanguage);
