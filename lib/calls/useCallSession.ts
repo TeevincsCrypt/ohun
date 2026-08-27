@@ -86,6 +86,8 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
   const startedAtRef = useRef<number | null>(null);
   const offerSentRef = useRef(false);
   const teardownRef = useRef(false);
+  /** Set once the transcription hook below exists — see speakIncoming. */
+  const suppressInputRef = useRef<((suppressed: boolean) => void) | null>(null);
 
   /** Attach the remote stream to the <audio> element the room renders. */
   const attachRemoteAudio = useCallback((element: HTMLAudioElement | null) => {
@@ -109,9 +111,19 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
       const element = remoteAudioRef.current;
       const wasMuted = element?.muted ?? false;
       if (element) element.muted = true;
+
+      // Stop feeding transcription for the duration. Synthesized speech
+      // comes out of the same speakers the microphone is listening to, and
+      // browser echo cancellation covers the WebRTC render path rather than
+      // speechSynthesis — so without this the app transcribes its own
+      // output, translates it, and sends it back, and the two sides end up
+      // talking to each other unprompted.
+      suppressInputRef.current?.(true);
+
       try {
         await speak({ text, languageCode: localeFor(myLanguage) });
       } finally {
+        suppressInputRef.current?.(false);
         // Never un-mute something the user muted themselves.
         if (element) element.muted = wasMuted || !speakerEnabledRef.current;
       }
@@ -160,6 +172,10 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
       });
     },
   });
+
+  useEffect(() => {
+    suppressInputRef.current = transcription.setInputSuppressed;
+  }, [transcription.setInputSuppressed]);
 
   const endCall = useCallback(async () => {
     teardown();

@@ -104,6 +104,21 @@ export function useTranscriptionSession({
   /** Latest translation, kept for the "Repeat translation" button. */
   const lastTranslationRef = useRef("");
 
+  /**
+   * While true, microphone audio is captured but not sent for
+   * transcription.
+   *
+   * Synthesized translations play through the same speakers the microphone
+   * is listening to, and browser echo cancellation covers the WebRTC render
+   * path, not speechSynthesis. Without this gate the app transcribes its own
+   * output, translates that, and broadcasts it — which in a group call
+   * compounds into a room that talks to itself.
+   *
+   * Audio still flows to peers throughout, so interrupting someone is
+   * audible; only the transcript loses those moments.
+   */
+  const inputSuppressedRef = useRef(false);
+
   // Held in a ref so a caller passing an inline arrow does not retrigger the
   // media effect on every render and tear down a live transcription stream.
   const onTranslationRef = useRef(onTranslation);
@@ -321,7 +336,10 @@ export function useTranscriptionSession({
       streamRef.current = stream;
 
       const recorder = createMicRecorder({
-        onAudioChunk: (chunk) => streamRef.current?.sendAudio(chunk),
+        onAudioChunk: (chunk) => {
+          if (inputSuppressedRef.current) return;
+          streamRef.current?.sendAudio(chunk);
+        },
         onError: (error) => {
           if (!isCurrent()) return;
           fail(error.message);
@@ -367,6 +385,11 @@ export function useTranscriptionSession({
     };
   }, [teardown]);
 
+  /** Gate transcription input — see inputSuppressedRef. */
+  const setInputSuppressed = useCallback((suppressed: boolean) => {
+    inputSuppressedRef.current = suppressed;
+  }, []);
+
   return {
     ...state,
     canSpeakAloud,
@@ -374,5 +397,6 @@ export function useTranscriptionSession({
     start,
     stop,
     repeatTranslation,
+    setInputSuppressed,
   };
 }

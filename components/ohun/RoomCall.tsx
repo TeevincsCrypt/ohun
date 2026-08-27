@@ -135,12 +135,14 @@ export function RoomCall({ room: initialRoom, self }: { room: Room; self: Profil
   );
 
   return (
-    <div className="theme-dark relative flex flex-1 flex-col overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
-      <div
+    <div className="theme-dark relative flex min-h-0 flex-1 flex-col overflow-x-clip bg-[var(--background)] text-[var(--foreground)] lg:h-[100dvh] lg:flex-none lg:overflow-hidden">
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+<div
         aria-hidden
         className="glow-field left-1/2 top-[14%] h-[380px] w-[560px] -translate-x-1/2 opacity-50"
         style={{ background: "radial-gradient(circle, var(--accent-glow) 0%, transparent 70%)" }}
       />
+      </div>
 
       <header className="relative z-10 flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3 sm:px-6 sm:py-4">
         <Logo />
@@ -161,7 +163,7 @@ export function RoomCall({ room: initialRoom, self }: { room: Room; self: Profil
         </div>
       </header>
 
-      <main className="relative z-10 mx-auto grid w-full max-w-[1180px] flex-1 gap-4 px-3 py-4 sm:gap-5 sm:px-5 sm:py-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <main className="relative z-10 mx-auto grid w-full min-h-0 max-w-[1180px] flex-1 gap-4 px-3 py-4 sm:gap-5 sm:px-5 sm:py-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[minmax(0,1fr)]">
         <section className="card-lit animate-rise flex min-h-0 min-w-0 flex-col rounded-3xl p-4 sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -291,7 +293,7 @@ export function RoomCall({ room: initialRoom, self }: { room: Room; self: Profil
           </div>
         </section>
 
-        <aside className="card-lit animate-rise flex min-h-0 min-w-0 flex-col rounded-3xl p-4 sm:p-5">
+        <aside className="card-lit animate-rise flex max-h-[60vh] min-h-0 min-w-0 flex-col rounded-3xl p-4 sm:p-5 lg:max-h-none">
           <RoomCaptions
             captions={captions}
             liveTranscript={liveTranscript}

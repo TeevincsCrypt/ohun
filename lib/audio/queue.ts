@@ -35,6 +35,23 @@ export class SpeechQueue {
   private items: QueueItem[] = [];
   private speaking = false;
   private stopped = false;
+  private readonly onSpeakingChange?: (speaking: boolean) => void;
+
+  /**
+   * @param onSpeakingChange Fired on each transition into and out of
+   * speaking. Callers use it to duck other audio and — importantly — to
+   * stop feeding the microphone to transcription, since synthesized speech
+   * comes out of the same speakers the microphone is listening to.
+   */
+  constructor(options: { onSpeakingChange?: (speaking: boolean) => void } = {}) {
+    this.onSpeakingChange = options.onSpeakingChange;
+  }
+
+  private setSpeaking(next: boolean): void {
+    if (this.speaking === next) return;
+    this.speaking = next;
+    this.onSpeakingChange?.(next);
+  }
 
   /** Adds a line to be spoken once everything ahead of it has finished. */
   enqueue(text: string, languageCode: LanguageCode): void {
@@ -48,7 +65,7 @@ export class SpeechQueue {
 
   private async drain(): Promise<void> {
     if (this.speaking || this.stopped) return;
-    this.speaking = true;
+    this.setSpeaking(true);
 
     try {
       while (this.items.length > 0 && !this.stopped) {
@@ -63,7 +80,7 @@ export class SpeechQueue {
         }
       }
     } finally {
-      this.speaking = false;
+      this.setSpeaking(false);
     }
   }
 
@@ -82,5 +99,8 @@ export class SpeechQueue {
   stop(): void {
     this.stopped = true;
     this.clear();
+    // Anything waiting on the speaking signal must be released, or the
+    // microphone would stay suppressed after the call ends.
+    this.setSpeaking(false);
   }
 }

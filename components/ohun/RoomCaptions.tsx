@@ -2,7 +2,69 @@
 
 import { useEffect, useRef } from "react";
 import { Avatar } from "./UserResult";
-import { LANGUAGE_FLAG, type CallLanguageCode, type Room, type RoomCaption } from "@/types";
+import {
+  CALL_LANGUAGE_CODES,
+  LANGUAGE_FLAG,
+  getCallLanguage,
+  type CallLanguageCode,
+  type Room,
+  type RoomCaption,
+} from "@/types";
+
+/**
+ * One line of an utterance, labelled with its language.
+ *
+ * The reader's own language is emphasised because it is the one spoken
+ * aloud here; the rest are shown so anyone can follow, or check, what the
+ * other people in the call are hearing.
+ */
+function LanguageLine({
+  code,
+  text,
+  tone,
+  note,
+}: {
+  code: CallLanguageCode | undefined;
+  text: string;
+  tone: "original" | "mine" | "other";
+  note?: string;
+}) {
+  if (!text) return null;
+
+  const styles = {
+    original: "text-[var(--foreground)]",
+    mine: "text-[var(--peer)] font-medium",
+    other: "text-[var(--muted)]",
+  }[tone];
+
+  return (
+    <p className="mt-1 flex gap-2 text-sm leading-snug" title={note}>
+      {/* Fixed width so every line starts at the same column. The labels
+          differ in length, and a ragged left edge makes a stack of four
+          translations much harder to scan. */}
+      <span
+        className="mt-[3px] flex w-[42px] shrink-0 select-none items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]"
+        title={code ? getCallLanguage(code)?.label : undefined}
+      >
+        <span aria-hidden>{code ? LANGUAGE_FLAG[code] : "🏳"}</span>
+        {code ? code.toUpperCase() : "??"}
+      </span>
+      <span className={`min-w-0 flex-1 ${styles}`}>
+        {text}
+        {/* Marks the line that was actually spoken aloud on this device,
+            without widening the label column. */}
+        {tone === "mine" && (
+          <span
+            aria-label="spoken aloud here"
+            className="ml-1.5 inline-block align-middle text-[9px] text-[var(--peer)] opacity-70"
+          >
+            ◂ heard
+          </span>
+        )}
+      </span>
+    </p>
+  );
+}
 
 /**
  * The running conversation in a group call.
@@ -56,9 +118,14 @@ export function RoomCaptions({
             (participant) => participant.userId === caption.speakerId,
           );
           const fromSelf = caption.speakerId === selfId;
-          // For someone else's line this is what was spoken aloud here; for
-          // my own there is no "my language" entry, so show nothing extra.
-          const mine = fromSelf ? null : caption.byLanguage[myLanguage];
+          const spokenIn = speaker?.language;
+
+          // Every language the utterance was rendered into, in a stable
+          // order so the list does not reshuffle between messages, with the
+          // reader's own first because it is the one spoken aloud here.
+          const translations = CALL_LANGUAGE_CODES.filter(
+            (code) => code !== spokenIn && Boolean(caption.byLanguage[code]),
+          ).sort((a, b) => Number(b === myLanguage) - Number(a === myLanguage));
 
           return (
             <div key={caption.id} className="animate-rise flex gap-3">
@@ -74,20 +141,32 @@ export function RoomCaptions({
                   <span className="truncate text-sm font-semibold tracking-tight">
                     {fromSelf ? "You" : (speaker?.profile.displayName.split(" ")[0] ?? "Someone")}
                   </span>
-                  {speaker && (
-                    <span className="shrink-0 text-[11px] text-[var(--muted)]">
-                      {LANGUAGE_FLAG[speaker.language]}
-                    </span>
-                  )}
+                  <span className="shrink-0 text-[11px] text-[var(--muted)]">
+                    {new Date(caption.at).toLocaleTimeString(undefined, {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
                 </p>
 
-                <p className="mt-0.5 text-sm leading-snug text-[var(--foreground)]">
-                  {caption.originalText}
-                </p>
+                {/* What was actually said, labelled with the language it
+                    was said in. */}
+                <LanguageLine
+                  code={spokenIn}
+                  text={caption.originalText}
+                  tone="original"
+                  note="spoken"
+                />
 
-                {mine && (
-                  <p className="mt-1 text-sm leading-snug text-[var(--peer)]">{mine}</p>
-                )}
+                {translations.map((code) => (
+                  <LanguageLine
+                    key={code}
+                    code={code}
+                    text={caption.byLanguage[code] ?? ""}
+                    tone={code === myLanguage ? "mine" : "other"}
+                    note={code === myLanguage ? "you hear" : undefined}
+                  />
+                ))}
               </div>
             </div>
           );

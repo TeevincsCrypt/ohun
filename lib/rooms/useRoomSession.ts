@@ -54,6 +54,12 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
   const meshRef = useRef<AudioMesh | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const speechRef = useRef<SpeechQueue | null>(null);
+  /**
+   * Set once the transcription hook exists. The speech queue is created in
+   * an effect and needs to reach back into it, which this indirection
+   * allows without ordering the two.
+   */
+  const suppressInputRef = useRef<((suppressed: boolean) => void) | null>(null);
   const leftRef = useRef(false);
 
   /** One <audio> element per peer, attached by the room UI. */
@@ -98,35 +104,13 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
     setCaptions((current) => [...current, caption].slice(-MAX_CAPTIONS));
   }, []);
 
-  /**
-   * Speaks an incoming translation, ducking every remote stream while it
-   * plays so the synthesized voice stays intelligible over live speech.
-   * Never touches the microphone, which has to keep feeding transcription.
-   */
-  const speakIncoming = useCallback((text: string) => {
-    const queue = speechRef.current;
-    if (!queue) return;
-
-    const elements = [...audioElementsRef.current.values()];
-    const wasMuted = new Map(elements.map((element) => [element, element.muted]));
-    elements.forEach((element) => {
-      element.muted = true;
-    });
-
-    queue.enqueue(text, myLanguage);
-
-    // Un-duck once the queue goes quiet. Polling is simpler here than
-    // threading a completion callback through the queue, and the interval
-    // is short enough not to be audible.
-    const timer = setInterval(() => {
-      if (queue.isSpeaking) return;
-      clearInterval(timer);
-      elements.forEach((element) => {
-        // Never un-mute something the user muted themselves.
-        element.muted = (wasMuted.get(element) ?? false) || !speakerEnabledRef.current;
-      });
-    }, 250);
-  }, [myLanguage]);
+  /** Queues an incoming translation to be spoken in my language. */
+  const speakIncoming = useCallback(
+    (text: string) => {
+      speechRef.current?.enqueue(text, myLanguage);
+    },
+    [myLanguage],
+  );
 
   /**
    * My own speech: transcribed here, then translated into every other
@@ -177,6 +161,10 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
     },
   });
 
+  useEffect(() => {
+    suppressInputRef.current = transcription.setInputSuppressed;
+  }, [transcription.setInputSuppressed]);
+
   const leave = useCallback(async () => {
     leftRef.current = true;
     meshRef.current?.close();
@@ -193,7 +181,18 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
   useEffect(() => {
     let cancelled = false;
     const supabase = createClient();
-    const queue = new SpeechQueue();
+    const queue = new SpeechQueue({
+      onSpeakingChange: (speaking) => {
+        // Duck every peer so the synthesized voice stays intelligible over
+        // live speech, and stop feeding transcription so the microphone
+        // does not hear this playback and transcribe it back — which is
+        // what makes a room start talking to itself.
+        suppressInputRef.current?.(speaking);
+        audioElementsRef.current.forEach((element) => {
+          element.muted = speaking || !speakerEnabledRef.current;
+        });
+      },
+    });
     speechRef.current = queue;
 
     const channel = supabase.channel(`room:${initialRoom.id}`, {
