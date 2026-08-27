@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useCallSession } from "@/lib/calls/useCallSession";
 import { Avatar } from "./UserResult";
+import { LiveCaptions } from "./LiveCaptions";
 import { Logo } from "./Logo";
 import { Pill } from "@/components/ui";
 import {
@@ -94,6 +95,11 @@ export function CallRoom({
     durationSeconds,
     error,
     hasTurn,
+    captions,
+    liveTranscript,
+    isTranslating,
+    transcriptionError,
+    canSpeakAloud,
     attachRemoteAudio,
     toggleMicrophone,
     toggleSpeaker,
@@ -158,15 +164,25 @@ export function CallRoom({
           </Pill>
         )}
 
-        <div className="rounded-2xl border border-dashed border-[var(--border)] px-6 py-5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-            Live translation
-          </p>
-          <p className="mt-2 max-w-sm text-sm italic text-[var(--muted)]">
-            Real-time translated captions arrive in the next phase. This call
-            carries your natural voice both ways.
-          </p>
-        </div>
+        <LiveCaptions
+          captions={captions}
+          liveTranscript={liveTranscript}
+          isTranslating={isTranslating}
+          self={self}
+          other={other}
+        />
+
+        {transcriptionError && (
+          <Pill tone="warning" className="max-w-md justify-center text-center">
+            {transcriptionError}
+          </Pill>
+        )}
+
+        {!canSpeakAloud && (
+          <Pill tone="warning" className="max-w-md justify-center text-center">
+            This browser can&apos;t speak translations aloud — they will still appear as captions.
+          </Pill>
+        )}
       </main>
 
       <footer className="flex items-center justify-center gap-3 border-t border-[var(--border)] px-6 py-6">

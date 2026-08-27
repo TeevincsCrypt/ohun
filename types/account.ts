@@ -95,3 +95,15 @@ export const TERMINAL_CALL_STATUSES: CallStatus[] = ["declined", "ended", "faile
 export function isTerminalStatus(status: CallStatus): boolean {
   return TERMINAL_CALL_STATUSES.includes(status);
 }
+
+/** One translated utterance shown in the call room's live captions. */
+export interface CallCaption {
+  id: string;
+  /** True when this is the local user's own speech. */
+  fromSelf: boolean;
+  /** What was said, in the speaker's own language. */
+  originalText: string;
+  /** The same utterance in the listener's language. */
+  translatedText: string;
+  at: number;
+}

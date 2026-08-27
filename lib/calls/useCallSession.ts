@@ -4,8 +4,27 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { createAudioPeer, type AudioPeer, type PeerSignal } from "@/lib/webrtc/peer";
+import {
+  useTranscriptionSession,
+  type TranslationPayload,
+} from "@/lib/assemblyai/useTranscriptionSession";
+import { speak, localeFor } from "@/lib/audio/player";
 import { setCallStatus } from "./actions";
-import { isTerminalStatus, type Call, type CallConnectionState, type CallStatus } from "@/types";
+import {
+  isTerminalStatus,
+  type Call,
+  type CallCaption,
+  type CallConnectionState,
+  type CallStatus,
+} from "@/types";
+
+/** A translated utterance sent to the other participant over the call channel. */
+interface CaptionMessage extends TranslationPayload {
+  id: string;
+}
+
+/** Keeps the caption list bounded during a long call. */
+const MAX_CAPTIONS = 50;
 
 interface UseCallSessionOptions {
   call: Call;
@@ -40,11 +59,20 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
   const shouldNegotiate = liveStatus === "accepted" || liveStatus === "connected";
   const [micEnabled, setMicEnabled] = useState(true);
   const [speakerEnabled, setSpeakerEnabled] = useState(true);
+  // Read inside async playback, where the state value would be stale.
+  const speakerEnabledRef = useRef(true);
   const [error, setError] = useState<string | null>(null);
   const [durationSeconds, setDurationSeconds] = useState(0);
   // Assume TURN until the peer reports otherwise, so the "no relay" warning
   // only appears once we actually know it is missing.
   const [hasTurn, setHasTurn] = useState(true);
+
+  const [captions, setCaptions] = useState<CallCaption[]>([]);
+
+  // Snapshotted on the call row, so a later profile edit cannot change a
+  // live room. Which side of the pair is "mine" depends on who called.
+  const myLanguage = isCaller ? call.callerLanguage : call.receiverLanguage;
+  const theirLanguage = isCaller ? call.receiverLanguage : call.callerLanguage;
 
   const peerRef = useRef<AudioPeer | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -58,6 +86,33 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
     remoteAudioRef.current = element;
   }, []);
 
+  const appendCaption = useCallback((caption: CallCaption) => {
+    setCaptions((current) => [...current, caption].slice(-MAX_CAPTIONS));
+  }, []);
+
+  /**
+   * Speaks a translation that arrived from the other participant.
+   *
+   * Mutes the *remote* <audio> element for the duration so the synthesized
+   * voice is intelligible over their raw speech. This deliberately never
+   * touches the microphone: it has to keep feeding transcription, and
+   * muting it would silence the local user mid-conversation.
+   */
+  const speakIncoming = useCallback(
+    async (text: string) => {
+      const element = remoteAudioRef.current;
+      const wasMuted = element?.muted ?? false;
+      if (element) element.muted = true;
+      try {
+        await speak({ text, languageCode: localeFor(myLanguage) });
+      } finally {
+        // Never un-mute something the user muted themselves.
+        if (element) element.muted = wasMuted || !speakerEnabledRef.current;
+      }
+    },
+    [myLanguage],
+  );
+
   const teardown = useCallback(() => {
     teardownRef.current = true;
     peerRef.current?.close();
@@ -67,6 +122,38 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
       channelRef.current = null;
     }
   }, []);
+
+  /**
+   * My own speech: transcribed here, translated into their language here,
+   * then the text is sent to them to be spoken on their device. Only the
+   * translated text crosses the network — never synthesized audio.
+   */
+  const transcription = useTranscriptionSession({
+    language: myLanguage,
+    targetLanguage: theirLanguage,
+    speakLocally: false,
+    onTranslation: ({ originalText, translatedText }) => {
+      const message: CaptionMessage = {
+        id: `${selfId}-${Date.now()}`,
+        originalText,
+        translatedText,
+      };
+
+      appendCaption({
+        id: message.id,
+        fromSelf: true,
+        originalText,
+        translatedText,
+        at: Date.now(),
+      });
+
+      void channelRef.current?.send({
+        type: "broadcast",
+        event: "caption",
+        payload: message,
+      });
+    },
+  });
 
   const endCall = useCallback(async () => {
     teardown();
@@ -142,6 +229,22 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
         void peer.acceptSignal(payload as PeerSignal);
       });
 
+      // Their speech, already translated into my language by their browser.
+      channel.on("broadcast", { event: "caption" }, ({ payload }) => {
+        const message = payload as CaptionMessage;
+        if (!message?.translatedText) return;
+
+        appendCaption({
+          id: message.id,
+          fromSelf: false,
+          originalText: message.originalText,
+          translatedText: message.translatedText,
+          at: Date.now(),
+        });
+
+        void speakIncoming(message.translatedText);
+      });
+
       // The caller waits for the receiver to appear before offering.
       channel.on("presence", { event: "sync" }, () => {
         if (!isCaller || offerSentRef.current) return;
@@ -173,7 +276,7 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
       void channel.unsubscribe();
       channelRef.current = null;
     };
-  }, [call.id, shouldNegotiate, isCaller, selfId]);
+  }, [call.id, shouldNegotiate, isCaller, selfId, appendCaption, speakIncoming]);
 
   // --- watch the call row so either side leaving ends it for both ----------
   useEffect(() => {
@@ -235,6 +338,18 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
     };
   }, [call.id, teardown]);
 
+  // --- transcription runs for the life of the connected call ---------------
+  const startTranscription = transcription.start;
+  const stopTranscription = transcription.stop;
+
+  useEffect(() => {
+    if (connectionState !== "connected") return;
+    void startTranscription();
+    return () => {
+      void stopTranscription();
+    };
+  }, [connectionState, startTranscription, stopTranscription]);
+
   // --- duration ------------------------------------------------------------
   useEffect(() => {
     if (connectionState !== "connected") return;
@@ -269,6 +384,7 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
     if (!element) return;
     const next = !speakerEnabled;
     element.muted = !next;
+    speakerEnabledRef.current = next;
     setSpeakerEnabled(next);
   }, [speakerEnabled]);
 
@@ -279,6 +395,12 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
     durationSeconds,
     error,
     hasTurn,
+    captions,
+    /** My own in-progress speech, before the utterance completes. */
+    liveTranscript: transcription.transcript,
+    isTranslating: transcription.isTranslating,
+    transcriptionError: transcription.error ?? transcription.translationError,
+    canSpeakAloud: transcription.canSpeakAloud,
     attachRemoteAudio,
     toggleMicrophone,
     toggleSpeaker,
