@@ -1,4 +1,4 @@
-export type LanguageCode = "en" | "fr" | "es" | "yo";
+export type LanguageCode = "en" | "fr" | "es" | "de" | "pt" | "it" | "yo";
 
 export interface Language {
   code: LanguageCode;
@@ -12,6 +12,12 @@ export const SUPPORTED_LANGUAGES: Language[] = [
   { code: "en", label: "English", nativeLabel: "English" },
   { code: "fr", label: "French", nativeLabel: "Français" },
   { code: "es", label: "Spanish", nativeLabel: "Español" },
+  { code: "de", label: "German", nativeLabel: "Deutsch" },
+  { code: "pt", label: "Portuguese", nativeLabel: "Português" },
+  { code: "it", label: "Italian", nativeLabel: "Italiano" },
+  // Not offered on calls: AssemblyAI's streaming models have no Yoruba, so
+  // a Yoruba speaker's own words would never transcribe. See
+  // CallLanguageCode in types/account.ts.
   { code: "yo", label: "Yoruba", nativeLabel: "Yorùbá" },
 ];
 

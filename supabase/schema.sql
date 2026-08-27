@@ -13,7 +13,7 @@ create table if not exists public.profiles (
   display_name       text not null,
   -- Restricted to the languages AssemblyAI streaming supports reliably.
   -- Yoruba is deliberately excluded — see README.
-  preferred_language text not null check (preferred_language in ('en', 'fr', 'es')),
+  preferred_language text not null check (preferred_language in ('en', 'fr', 'es', 'de', 'pt', 'it')),
   last_seen_at       timestamptz not null default now(),
   created_at         timestamptz not null default now(),
 
@@ -45,8 +45,8 @@ create table if not exists public.calls (
   status            call_status not null default 'ringing',
   -- Snapshotted at call time so the room is not affected by a later
   -- profile edit, and so both directions are known explicitly.
-  caller_language   text not null check (caller_language in ('en', 'fr', 'es')),
-  receiver_language text not null check (receiver_language in ('en', 'fr', 'es')),
+  caller_language   text not null check (caller_language in ('en', 'fr', 'es', 'de', 'pt', 'it')),
+  receiver_language text not null check (receiver_language in ('en', 'fr', 'es', 'de', 'pt', 'it')),
   created_at        timestamptz not null default now(),
   ended_at          timestamptz,
 
@@ -430,7 +430,7 @@ begin
     -- Metadata is client-supplied, so an unexpected value would otherwise
     -- trip the check constraint and fail the whole signup. Coerce instead.
     case
-      when new.raw_user_meta_data ->> 'preferred_language' in ('en', 'fr', 'es')
+      when new.raw_user_meta_data ->> 'preferred_language' in ('en', 'fr', 'es', 'de', 'pt', 'it')
         then new.raw_user_meta_data ->> 'preferred_language'
       else 'en'
     end,
@@ -439,3 +439,29 @@ begin
   return new;
 end;
 $$;
+
+-- ---------------------------------------------------------------------------
+-- Phase 9: German, Portuguese and Italian.
+--
+-- The language checks above only apply to a freshly created table. On a
+-- database that already exists the old three-language constraints are still
+-- attached, so they have to be dropped and rebuilt for the wider set.
+-- Yoruba stays out: AssemblyAI's streaming models cannot transcribe it, so
+-- offering it on calls would mean speech that never becomes text.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  allowed text := $c$ in ('en', 'fr', 'es', 'de', 'pt', 'it')$c$;
+begin
+  alter table public.profiles drop constraint if exists profiles_preferred_language_check;
+  execute 'alter table public.profiles add constraint profiles_preferred_language_check
+           check (preferred_language' || allowed || ')';
+
+  alter table public.calls drop constraint if exists calls_caller_language_check;
+  execute 'alter table public.calls add constraint calls_caller_language_check
+           check (caller_language' || allowed || ')';
+
+  alter table public.calls drop constraint if exists calls_receiver_language_check;
+  execute 'alter table public.calls add constraint calls_receiver_language_check
+           check (receiver_language' || allowed || ')';
+end $$;

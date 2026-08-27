@@ -8,9 +8,9 @@ import { SUPPORTED_LANGUAGES } from "./language";
  * Yoruba here would produce calls that silently fail to transcribe, so it
  * stays available only in the single-device Phase 3 demo at /conversation.
  */
-export type CallLanguageCode = Extract<LanguageCode, "en" | "fr" | "es">;
+export type CallLanguageCode = Extract<LanguageCode, "en" | "fr" | "es" | "de" | "pt" | "it">;
 
-export const CALL_LANGUAGE_CODES: CallLanguageCode[] = ["en", "fr", "es"];
+export const CALL_LANGUAGE_CODES: CallLanguageCode[] = ["en", "fr", "es", "de", "pt", "it"];
 
 export const CALL_LANGUAGES: Language[] = SUPPORTED_LANGUAGES.filter(
   (language): language is Language & { code: CallLanguageCode } =>
@@ -30,6 +30,9 @@ export const LANGUAGE_FLAG: Record<CallLanguageCode, string> = {
   en: "🇬🇧",
   fr: "🇫🇷",
   es: "🇪🇸",
+  de: "🇩🇪",
+  pt: "🇵🇹",
+  it: "🇮🇹",
 };
 
 export const USERNAME_PATTERN = /^[a-z0-9_]{3,20}$/;
