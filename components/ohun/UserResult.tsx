@@ -13,7 +13,10 @@ export function Avatar({
   size?: "md" | "lg";
 }) {
   const initial = name.trim().charAt(0).toUpperCase() || "?";
-  const dimensions = size === "lg" ? "h-24 w-24 text-3xl" : "h-11 w-11 text-base";
+  // The large size steps down on narrow viewports: at 96px two of them
+  // plus the call-room hub no longer fit a phone.
+  const dimensions =
+    size === "lg" ? "h-20 w-20 text-2xl sm:h-24 sm:w-24 sm:text-3xl" : "h-11 w-11 text-base";
   const shared = `flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-[var(--border)] ${dimensions}`;
 
   if (src) {
