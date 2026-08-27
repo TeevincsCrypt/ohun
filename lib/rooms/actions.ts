@@ -22,29 +22,6 @@ interface ParticipantRow {
   language: CallLanguageCode;
   state: ParticipantState;
   invited_by: string | null;
-  profiles: {
-    id: string;
-    username: string;
-    display_name: string;
-    avatar_url: string | null;
-  } | null;
-}
-
-function toParticipant(row: ParticipantRow): RoomParticipant | null {
-  // A participant whose profile has been deleted leaves an orphan row.
-  if (!row.profiles) return null;
-  return {
-    userId: row.user_id,
-    language: row.language,
-    state: row.state,
-    invitedBy: row.invited_by,
-    profile: {
-      id: row.profiles.id,
-      username: row.profiles.username,
-      displayName: row.profiles.display_name,
-      avatarUrl: row.profiles.avatar_url,
-    },
-  };
 }
 
 /**
@@ -240,22 +217,75 @@ export async function endRoom(roomId: string): Promise<{ error?: string }> {
 export async function getRoom(roomId: string): Promise<Room | null> {
   const supabase = await createClient();
 
-  const { data: room } = await supabase
+  const { data: room, error: roomError } = await supabase
     .from("rooms")
     .select("id, host_id, status, created_at")
     .eq("id", roomId)
     .maybeSingle();
 
+  if (roomError) console.error("[ohun/rooms] could not read room", roomError);
   if (!room) return null;
 
-  const { data: rows } = await supabase
+  const { data: rows, error: rowsError } = await supabase
     .from("room_participants")
-    .select("user_id, language, state, invited_by, profiles(id, username, display_name, avatar_url)")
+    .select("user_id, language, state, invited_by")
     .eq("room_id", roomId);
 
-  const participants = ((rows ?? []) as unknown as ParticipantRow[])
-    .map(toParticipant)
-    .filter((participant): participant is RoomParticipant => participant !== null);
+  if (rowsError) {
+    console.error("[ohun/rooms] could not read participants", rowsError);
+    return null;
+  }
+
+  const participantRows = (rows ?? []) as ParticipantRow[];
+  if (participantRows.length === 0) {
+    return {
+      id: room.id as string,
+      hostId: room.host_id as string,
+      status: room.status as RoomStatus,
+      createdAt: room.created_at as string,
+      participants: [],
+    };
+  }
+
+  // Fetched separately rather than as an embedded `profiles(...)` select:
+  // room_participants has two foreign keys into profiles (user_id and
+  // invited_by), so PostgREST cannot tell which relationship an embed means
+  // and refuses the whole query. Two plain reads have no such ambiguity.
+  const { data: profileRows } = await supabase
+    .from("profiles")
+    .select("id, username, display_name, avatar_url")
+    .in(
+      "id",
+      participantRows.map((row) => row.user_id),
+    );
+
+  const byId = new Map(
+    (profileRows ?? []).map((row) => [
+      row.id as string,
+      {
+        id: row.id as string,
+        username: row.username as string,
+        displayName: row.display_name as string,
+        avatarUrl: (row.avatar_url as string | null) ?? null,
+      },
+    ]),
+  );
+
+  const participants = participantRows.flatMap<RoomParticipant>((row) => {
+    const profile = byId.get(row.user_id);
+    // A deleted account leaves the participant row behind — skip it rather
+    // than rendering a nameless seat.
+    if (!profile) return [];
+    return [
+      {
+        userId: row.user_id,
+        language: row.language,
+        state: row.state,
+        invitedBy: row.invited_by,
+        profile,
+      },
+    ];
+  });
 
   return {
     id: room.id as string,
