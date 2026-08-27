@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { tryCreateAdminClient } from "@/lib/supabase/admin";
 import { FREE_CALLS_PER_PERIOD, type BillingStatus, type SubscriptionStatus } from "@/types";
 
 /** How long a free period lasts before its call counter resets. */
@@ -26,9 +26,10 @@ interface BillingRow {
  * as `authenticated` and would be rejected by the same privilege check a
  * browser client hitting the table directly would hit.
  */
-async function loadBilling(userId: string): Promise<BillingRow> {
-  const admin = createAdminClient();
-
+async function loadBilling(
+  admin: NonNullable<ReturnType<typeof tryCreateAdminClient>>,
+  userId: string,
+): Promise<BillingRow> {
   const { data } = await admin
     .from("profiles")
     .select("subscription_status, free_calls_used, free_period_started_at")
@@ -57,7 +58,20 @@ export async function getBillingStatus(): Promise<BillingStatus | null> {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const row = await loadBilling(user.id);
+  const admin = tryCreateAdminClient();
+  // No service-role key: billing is not configured at all, so report the
+  // unmetered state rather than failing the page that asked.
+  if (!admin) {
+    return {
+      status: "free",
+      freeCallsUsed: 0,
+      freeCallsLimit: FREE_CALLS_PER_PERIOD,
+      freeCallsRemaining: FREE_CALLS_PER_PERIOD,
+      enforced: false,
+    };
+  }
+
+  const row = await loadBilling(admin, user.id);
 
   return {
     status: row.subscription_status,
@@ -91,8 +105,14 @@ function isBillingEnabled(): boolean {
  * checks would just be wasted writes.
  */
 export async function consumeFreeCallOrReject(userId: string): Promise<boolean> {
-  const admin = createAdminClient();
-  const row = await loadBilling(userId);
+  const admin = tryCreateAdminClient();
+
+  // Metering is optional; placing a call is not. Without a service-role
+  // key there is no way to read or move the counter, so allow the call
+  // rather than blocking the product's core feature on an unset env var.
+  if (!admin) return true;
+
+  const row = await loadBilling(admin, userId);
 
   if (row.subscription_status === "active") return true;
   if (row.free_calls_used >= FREE_CALLS_PER_PERIOD && isBillingEnabled()) return false;
@@ -126,7 +146,9 @@ export async function activateSubscription(productId: string): Promise<{ error?:
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
 
-  const admin = createAdminClient();
+  const admin = tryCreateAdminClient();
+  if (!admin) return { error: "Billing isn't configured on this deployment." };
+
   const { error } = await admin
     .from("profiles")
     .update({

@@ -69,6 +69,12 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
 
   const [captions, setCaptions] = useState<CallCaption[]>([]);
 
+  // Held in state rather than a ref so the level meters re-render when the
+  // streams arrive. Purely presentational — nothing in the call depends on
+  // these.
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+
   // Snapshotted on the call row, so a later profile edit cannot change a
   // live room. Which side of the pair is "mine" depends on who called.
   const myLanguage = isCaller ? call.callerLanguage : call.receiverLanguage;
@@ -183,6 +189,7 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
         peer = await createAudioPeer({
           onSignal: send,
           onRemoteStream: (stream) => {
+            if (!cancelled) setRemoteStream(stream);
             if (remoteAudioRef.current) {
               remoteAudioRef.current.srcObject = stream;
               void remoteAudioRef.current.play().catch(() => {
@@ -224,6 +231,7 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
       peerRef.current = peer;
       setMicEnabled(peer.isMicrophoneEnabled());
       setHasTurn(peer.hasTurn);
+      setLocalStream(peer.localStream);
 
       channel.on("broadcast", { event: "signal" }, ({ payload }) => {
         void peer.acceptSignal(payload as PeerSignal);
@@ -273,6 +281,8 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
       cancelled = true;
       peerRef.current?.close();
       peerRef.current = null;
+      setLocalStream(null);
+      setRemoteStream(null);
       void channel.unsubscribe();
       channelRef.current = null;
     };
@@ -396,6 +406,9 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
     error,
     hasTurn,
     captions,
+    /** Live microphone and peer audio, for the level meters. */
+    localStream,
+    remoteStream,
     /** My own in-progress speech, before the utterance completes. */
     liveTranscript: transcription.transcript,
     isTranslating: transcription.isTranslating,

@@ -296,22 +296,32 @@ do $$ begin
 exception when duplicate_object then null;
 end $$;
 
--- Column-level privilege, layered UNDER row level security rather than
--- replacing it. The "update own profile" RLS policy above lets a user
--- update their own row at all, which is correct for display_name/phone/
--- preferred_language/avatar_url — but without this, the same policy would
--- let anyone open devtools and run
+-- Column privileges, layered UNDER row level security rather than replacing
+-- it. The "update own profile" RLS policy above lets a user update their own
+-- row at all, which is correct for display_name/phone/preferred_language/
+-- avatar_url. It says nothing about *which* columns, though, so without the
+-- restriction below anyone could open devtools and run
 --   supabase.from('profiles').update({ subscription_status: 'active' })
--- to grant themselves a paid plan for free. These four columns are only
--- ever written by server code using the service-role client (see
--- lib/supabase/admin.ts), which bypasses RLS and grants entirely, so the
--- revoke below is what actually protects them.
-revoke update (
-  subscription_status,
-  subscription_product_id,
-  free_calls_used,
-  free_period_started_at
-) on public.profiles from authenticated, anon;
+-- to grant themselves a paid plan for free.
+--
+-- This has to be a table-level revoke followed by an explicit allow-list.
+-- Supabase grants table-wide UPDATE to `authenticated`, and a column-level
+-- `revoke update (col)` does NOT remove a table-level grant — it only drops
+-- a column-level one, so on its own it would be a no-op.
+--
+-- Every column not granted here is writable only by the service-role client
+-- (see lib/supabase/admin.ts), which bypasses grants entirely. The grant is
+-- restated after Phase 8 adds room_slug and is_guest, so re-running this
+-- file top to bottom always lands on the full allow-list.
+revoke update on public.profiles from authenticated, anon;
+
+grant update (
+  display_name,
+  preferred_language,
+  phone,
+  avatar_url,
+  last_seen_at
+) on public.profiles to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Phase 7: recent activity.
@@ -377,7 +387,20 @@ create unique index if not exists profiles_room_slug_key
 -- room_slug is how a link is revoked, so it must not be writable by the
 -- client directly — rotation goes through a server action that regenerates
 -- it. is_guest decides search visibility and must not be self-serve either.
-revoke update (room_slug, is_guest) on public.profiles from authenticated, anon;
+--
+-- Neither column appears in the grant below, which is what keeps them out
+-- of a client's reach. Restated here rather than only in the billing
+-- section above so that this file is correct whether it is run whole or
+-- from this section onwards.
+revoke update on public.profiles from authenticated, anon;
+
+grant update (
+  display_name,
+  preferred_language,
+  phone,
+  avatar_url,
+  last_seen_at
+) on public.profiles to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- The signup trigger has to cope with anonymous users now: they arrive with

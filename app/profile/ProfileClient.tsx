@@ -53,7 +53,7 @@ function Field({
       <input
         id={id}
         name={id}
-        className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 text-base text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted)] focus-visible:border-[var(--foreground)]"
+        className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 text-base text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted)] focus-visible:border-[var(--accent)]"
         {...props}
       />
       {hint && <p className="text-xs text-[var(--muted)]">{hint}</p>}
@@ -160,7 +160,7 @@ function DetailsSection({ profile }: { profile: Profile }) {
             id="preferredLanguage"
             name="preferredLanguage"
             defaultValue={profile.preferredLanguage}
-            className="h-12 w-full appearance-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 text-base text-[var(--foreground)] outline-none transition-colors focus-visible:border-[var(--foreground)]"
+            className="h-12 w-full appearance-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 text-base text-[var(--foreground)] outline-none transition-colors focus-visible:border-[var(--accent)]"
           >
             {CALL_LANGUAGES.map((language) => (
               <option key={language.code} value={language.code}>

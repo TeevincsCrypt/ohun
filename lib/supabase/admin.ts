@@ -19,6 +19,22 @@ export class AdminNotConfiguredError extends Error {
   }
 }
 
+/**
+ * Admin client, or null when the service-role key is absent.
+ *
+ * For callers where the service-role key is genuinely optional — anything
+ * that should degrade rather than fail. Placing a call must never depend
+ * on a key that only notification email and billing need.
+ */
+export function tryCreateAdminClient() {
+  try {
+    return createAdminClient();
+  } catch (error) {
+    if (error instanceof AdminNotConfiguredError) return null;
+    throw error;
+  }
+}
+
 export function createAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

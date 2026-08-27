@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { tryCreateAdminClient } from "@/lib/supabase/admin";
 import type { CallLanguageCode } from "@/types";
 
 /** What the public room page needs to render. Deliberately minimal — this is unauthenticated. */
@@ -56,7 +56,10 @@ export async function regenerateRoomLink(): Promise<{ slug?: string; error?: str
   // room_slug is revoked from the `authenticated` role precisely so a
   // client cannot set it to a value of its choosing — the new slug has to
   // come from the database function, through the service-role client.
-  const admin = createAdminClient();
+  const admin = tryCreateAdminClient();
+  if (!admin) {
+    return { error: "Link rotation isn't available on this deployment yet." };
+  }
 
   const { data: generated, error: generateError } = await admin.rpc("generate_room_slug");
   if (generateError || typeof generated !== "string") {

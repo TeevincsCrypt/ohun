@@ -32,6 +32,8 @@ export interface AudioPeer {
   close: () => void;
   /** True when TURN relay was available for this connection. */
   hasTurn: boolean;
+  /** The captured microphone stream, for local level metering. */
+  localStream: MediaStream;
 }
 
 export class PeerError extends Error {
@@ -102,6 +104,7 @@ export async function createAudioPeer(callbacks: PeerCallbacks): Promise<AudioPe
 
   return {
     hasTurn,
+    localStream,
 
     async createOffer() {
       try {

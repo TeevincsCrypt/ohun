@@ -2,36 +2,47 @@
 
 /*
  * OHUN design tokens.
- * Monochrome brand: every surface is defined by a --background /
- * --foreground pair. The marketing site (light) sets these on :root;
- * the product surfaces (setup, conversation) flip them inside
- * `.theme-dark`. Components read the pair via CSS variables so the same
- * <Button variant="solid" /> etc. automatically inverts on either surface.
+ *
+ * One dark palette across marketing and product. Two accents carry meaning
+ * rather than decoration: --accent is always "you" (your voice, your
+ * language, primary actions) and --peer is always the other person. A
+ * translated call therefore reads at a glance — your side is lime, theirs
+ * is indigo, on every surface that shows both.
  */
 :root {
-  --background: #f6f4f0;
-  --foreground: #0b0b0c;
-  --muted: rgba(11, 11, 12, 0.58);
-  --border: rgba(11, 11, 12, 0.12);
-  --surface: rgba(11, 11, 12, 0.04);
-  /* Single accent, used for "live" states: connected calls, active plans,
-     the speaking indicator. Kept as a token so the emerald can be changed
-     in one place rather than across every component that signals liveness. */
-  --accent: #059669;
-  --accent-soft: rgba(5, 150, 105, 0.12);
-  --accent-border: rgba(5, 150, 105, 0.3);
+  /* Dark by default. OHUN is a product surface first and a marketing page
+     second, and the two now share one palette instead of inverting. */
+  --background: #08090b;
+  --foreground: #f4f5f7;
+  --muted: rgba(244, 245, 247, 0.56);
+  --border: rgba(244, 245, 247, 0.1);
+  --surface: rgba(244, 245, 247, 0.035);
+  /* One step brighter than --surface, for cards sitting on top of cards. */
+  --surface-raised: rgba(244, 245, 247, 0.06);
+
+  /* Primary accent: the local speaker, live state, primary actions. */
+  --accent: #a3e635;
+  --accent-strong: #bef264;
+  --accent-soft: rgba(163, 230, 53, 0.12);
+  --accent-border: rgba(163, 230, 53, 0.28);
+  --accent-glow: rgba(163, 230, 53, 0.32);
+
+  /* Secondary accent: the remote speaker and their language, so the two
+     sides of a translated call are visually distinguishable at a glance. */
+  --peer: #818cf8;
+  --peer-soft: rgba(129, 140, 248, 0.12);
+  --peer-border: rgba(129, 140, 248, 0.28);
+  --peer-glow: rgba(129, 140, 248, 0.3);
+
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.12);
+  --danger-border: rgba(248, 113, 113, 0.3);
 }
 
+/* Kept as an alias: every app surface already wraps itself in this class,
+   and the palette is now dark everywhere, so it simply inherits. */
 .theme-dark {
-  --background: #08080a;
-  --foreground: #f6f5f3;
-  --muted: rgba(246, 245, 243, 0.6);
-  --border: rgba(246, 245, 243, 0.14);
-  --surface: rgba(246, 245, 243, 0.05);
-  /* Brighter on dark so it holds up against the near-black background. */
-  --accent: #10b981;
-  --accent-soft: rgba(16, 185, 129, 0.12);
-  --accent-border: rgba(16, 185, 129, 0.32);
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -41,6 +52,7 @@
   --color-border: var(--border);
   --color-surface: var(--surface);
   --color-accent: var(--accent);
+  --color-peer: var(--peer);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -92,4 +104,87 @@ body {
 
 .animate-pulse-ring {
   animation: pulse-ring 2.2s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+}
+
+/* --- depth ---------------------------------------------------------------
+ * Ambient light behind a section. Sized and positioned by the caller; this
+ * only supplies the blur and the falloff.
+ */
+.glow-field {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(90px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Hairline top edge that catches "light", the detail that separates a flat
+   dark card from one that looks lit. */
+.card-lit {
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(244, 245, 247, 0.055) 0%, rgba(244, 245, 247, 0.02) 100%);
+  border: 1px solid var(--border);
+}
+
+.card-lit::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(244, 245, 247, 0.22) 30%,
+    rgba(244, 245, 247, 0.22) 70%,
+    transparent
+  );
+  pointer-events: none;
+}
+
+/* --- motion --------------------------------------------------------------- */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-rise {
+  animation: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.04);
+  }
+}
+
+.animate-breathe {
+  animation: breathe 3.5s ease-in-out infinite;
+}
+
+/* Honours the OS setting: everything above is decorative, so a user who
+   asked for less motion loses nothing but the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise,
+  .animate-breathe,
+  .animate-pulse-ring {
+    animation: none;
+  }
+
+  .animate-rise {
+    opacity: 1;
+    transform: none;
+  }
 }
