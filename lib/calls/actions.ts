@@ -1,11 +1,13 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { isCallLanguage, type CallStatus } from "@/types";
+import { consumeFreeCallOrReject } from "@/lib/billing/actions";
+import { isCallLanguage, type CallStatus, type StartCallErrorCode } from "@/types";
 
 export interface StartCallResult {
   callId?: string;
   error?: string;
+  code?: StartCallErrorCode;
 }
 
 /**
@@ -37,6 +39,16 @@ export async function startCall(receiverId: string): Promise<StartCallResult> {
   if (!caller || !receiver) return { error: "Could not find that person." };
   if (!isCallLanguage(caller.preferred_language) || !isCallLanguage(receiver.preferred_language)) {
     return { error: "One of you has an unsupported language set." };
+  }
+
+  // Only the caller's plan is metered — answering a call never costs the
+  // receiver anything, so there is nothing to check on their side.
+  const allowed = await consumeFreeCallOrReject(user.id);
+  if (!allowed) {
+    return {
+      error: "You've used all your free calls this month. Subscribe to keep calling.",
+      code: "free_tier_exhausted",
+    };
   }
 
   // Clear any of this caller's stale ringing calls so a refresh mid-ring
@@ -82,7 +94,7 @@ export async function setCallStatus(
 
   const { data: call, error: readError } = await supabase
     .from("calls")
-    .select("id, caller_id, receiver_id, status")
+    .select("id, caller_id, receiver_id, status, connected_at")
     .eq("id", callId)
     .maybeSingle();
 
@@ -99,6 +111,13 @@ export async function setCallStatus(
   const patch: Record<string, unknown> = { status };
   if (status === "declined" || status === "ended" || status === "failed") {
     patch.ended_at = new Date().toISOString();
+  }
+  // Both peers report "connected", so only stamp it if it is not already
+  // set. Two simultaneous reports can both see null and both write, but
+  // the two timestamps are milliseconds apart and either is a truthful
+  // answer to "when did this connect" — not worth a transaction.
+  if (status === "connected" && !call.connected_at) {
+    patch.connected_at = new Date().toISOString();
   }
 
   const { error } = await supabase.from("calls").update(patch).eq("id", callId);

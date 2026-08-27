@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { PROFILE_COLUMNS, toProfile, type ProfileRow } from "@/lib/supabase/profile";
 import { setCallStatus } from "@/lib/calls/actions";
 import { Button, Card, Pill } from "@/components/ui";
 import { Avatar } from "./UserResult";
@@ -53,7 +54,7 @@ export function IncomingCallDialog({ selfId }: { selfId: string }) {
 
       const { data, error: callerLookupError } = await supabase
         .from("profiles")
-        .select("id, username, display_name, preferred_language, last_seen_at")
+        .select(PROFILE_COLUMNS)
         .eq("id", row.caller_id)
         .maybeSingle();
 
@@ -68,13 +69,7 @@ export function IncomingCallDialog({ selfId }: { selfId: string }) {
           ? current
           : {
               callId: row.id,
-              caller: {
-                id: data.id,
-                username: data.username,
-                displayName: data.display_name,
-                preferredLanguage: data.preferred_language,
-                lastSeenAt: data.last_seen_at,
-              },
+              caller: toProfile(data as ProfileRow),
               callerLanguage: row.caller_language,
               receiverLanguage: row.receiver_language,
             },
@@ -239,7 +234,7 @@ export function IncomingCallDialog({ selfId }: { selfId: string }) {
             </p>
 
             <div className="mt-6 flex flex-col items-center gap-4">
-              <Avatar name={incoming.caller.displayName} size="lg" />
+              <Avatar name={incoming.caller.displayName} src={incoming.caller.avatarUrl} size="lg" />
               <div>
                 <p className="text-xl font-semibold tracking-tight">
                   {incoming.caller.displayName} wants to talk with you.

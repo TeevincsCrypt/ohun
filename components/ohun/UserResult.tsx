@@ -3,14 +3,30 @@
 import { Card, Pill, Button } from "@/components/ui";
 import { LANGUAGE_FLAG, getCallLanguage, isOnline, type Profile } from "@/types";
 
-export function Avatar({ name, size = "md" }: { name: string; size?: "md" | "lg" }) {
+export function Avatar({
+  name,
+  src,
+  size = "md",
+}: {
+  name: string;
+  src?: string | null;
+  size?: "md" | "lg";
+}) {
   const initial = name.trim().charAt(0).toUpperCase() || "?";
   const dimensions = size === "lg" ? "h-24 w-24 text-3xl" : "h-11 w-11 text-base";
+  const shared = `flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-[var(--border)] ${dimensions}`;
+
+  if (src) {
+    return (
+      // Avatars come from Supabase Storage on a per-project domain, so
+      // next/image would need a remotePatterns entry per deployment.
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={src} alt="" aria-hidden className={`${shared} bg-[var(--surface)] object-cover`} />
+    );
+  }
+
   return (
-    <div
-      aria-hidden
-      className={`flex shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] font-semibold ${dimensions}`}
-    >
+    <div aria-hidden className={`${shared} bg-[var(--surface)] font-semibold`}>
       {initial}
     </div>
   );
@@ -39,17 +55,19 @@ export function PresenceTag({ online }: { online: boolean }) {
 export function UserResult({
   profile,
   onCall,
+  onSchedule,
   isCalling,
 }: {
   profile: Profile;
   onCall: (profile: Profile) => void;
+  onSchedule?: (profile: Profile) => void;
   isCalling: boolean;
 }) {
   const online = isOnline(profile);
 
   return (
     <Card className="flex items-center gap-4">
-      <Avatar name={profile.displayName} />
+      <Avatar name={profile.displayName} src={profile.avatarUrl} />
 
       <div className="min-w-0 flex-1">
         <p className="truncate font-semibold tracking-tight">{profile.displayName}</p>
@@ -63,9 +81,25 @@ export function UserResult({
       {isCalling ? (
         <Pill tone="warning">Calling…</Pill>
       ) : (
-        <Button onClick={() => onCall(profile)} size="md">
-          Call
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {onSchedule && (
+            <button
+              type="button"
+              onClick={() => onSchedule(profile)}
+              aria-label={`Schedule a call with ${profile.displayName}`}
+              title="Schedule a call"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-[var(--border)] text-[var(--muted)] transition-colors hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <rect x="3" y="5" width="18" height="16" rx="2" />
+                <path d="M3 10h18M8 3v4M16 3v4" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
+          <Button onClick={() => onCall(profile)} size="md">
+            Call
+          </Button>
+        </div>
       )}
     </Card>
   );

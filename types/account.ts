@@ -50,7 +50,38 @@ export interface Profile {
   displayName: string;
   preferredLanguage: CallLanguageCode;
   lastSeenAt: string;
+  avatarUrl: string | null;
+  phone: string | null;
+  /** Slug behind this account's shareable room link. */
+  roomSlug: string;
+  /** True for an anonymous visitor who joined through a room link. */
+  isGuest: boolean;
 }
+
+/** Public room URL for a profile, e.g. https://ohun.app/r/kp3nx7qw2m */
+export function roomUrl(origin: string, slug: string): string {
+  return `${origin.replace(/\/$/, "")}/r/${slug}`;
+}
+
+/** E.164: a leading + and 7-15 digits. Mirrors the DB constraint. */
+export const PHONE_PATTERN = /^\+[1-9]\d{6,14}$/;
+
+export function validatePhone(phone: string): string | null {
+  if (!phone) return null;
+  if (!PHONE_PATTERN.test(phone)) {
+    return "Use an international number, e.g. +2348012345678.";
+  }
+  return null;
+}
+
+export function validateDisplayName(displayName: string): string | null {
+  if (!displayName.trim()) return "Enter a display name.";
+  if (displayName.trim().length > 50) return "Display names are at most 50 characters.";
+  return null;
+}
+
+export const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
+export const AVATAR_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 /** Treated as online if seen within this window. */
 export const ONLINE_WINDOW_MS = 60_000;
@@ -94,4 +125,112 @@ export const TERMINAL_CALL_STATUSES: CallStatus[] = ["declined", "ended", "faile
 
 export function isTerminalStatus(status: CallStatus): boolean {
   return TERMINAL_CALL_STATUSES.includes(status);
+}
+
+/** One translated utterance shown in the call room's live captions. */
+export interface CallCaption {
+  id: string;
+  /** True when this is the local user's own speech. */
+  fromSelf: boolean;
+  /** What was said, in the speaker's own language. */
+  originalText: string;
+  /** The same utterance in the listener's language. */
+  translatedText: string;
+  at: number;
+}
+
+export type ScheduledCallStatus = "pending" | "started" | "cancelled" | "missed";
+
+export interface ScheduledCall {
+  id: string;
+  organizerId: string;
+  inviteeId: string;
+  /** ISO timestamp. */
+  scheduledAt: string;
+  note: string | null;
+  status: ScheduledCallStatus;
+  callId: string | null;
+  createdAt: string;
+  /** The other party, resolved for display. */
+  counterpart: Pick<Profile, "id" | "username" | "displayName" | "preferredLanguage" | "avatarUrl">;
+  /** True when the signed-in user created this. */
+  organizedBySelf: boolean;
+}
+
+/** A scheduled call is joinable from a few minutes before until it goes stale. */
+export const JOIN_WINDOW_BEFORE_MS = 5 * 60_000;
+export const JOIN_WINDOW_AFTER_MS = 30 * 60_000;
+
+export function isJoinable(scheduled: Pick<ScheduledCall, "scheduledAt" | "status">): boolean {
+  if (scheduled.status !== "pending") return false;
+  const delta = new Date(scheduled.scheduledAt).getTime() - Date.now();
+  return delta <= JOIN_WINDOW_BEFORE_MS && delta >= -JOIN_WINDOW_AFTER_MS;
+}
+
+/** Past the join window with nobody having started it. */
+export function isMissed(scheduled: Pick<ScheduledCall, "scheduledAt" | "status">): boolean {
+  if (scheduled.status !== "pending") return false;
+  return new Date(scheduled.scheduledAt).getTime() < Date.now() - JOIN_WINDOW_AFTER_MS;
+}
+
+export type SubscriptionStatus = "free" | "active";
+
+/** Free calls allowed per rolling 30-day period before checkout is required. */
+export const FREE_CALLS_PER_PERIOD = 5;
+
+export interface BillingStatus {
+  status: SubscriptionStatus;
+  freeCallsUsed: number;
+  freeCallsLimit: number;
+  /** Never negative; 0 means the next call requires a subscription. */
+  freeCallsRemaining: number;
+  /**
+   * False when no payment provider is configured on this deployment, in
+   * which case the limit is tracked but never actually blocks a call.
+   */
+  enforced: boolean;
+}
+
+/** Machine-readable reason code, alongside the free-text error, so the UI can tell "quota" apart from any other failure. */
+export type StartCallErrorCode = "free_tier_exhausted";
+
+/** How a finished call turned out, from the signed-in user's point of view. */
+export type CallOutcome = "completed" | "missed" | "declined" | "cancelled" | "failed";
+
+export interface CallHistoryEntry {
+  id: string;
+  /** The other party. */
+  counterpart: Pick<Profile, "id" | "username" | "displayName" | "preferredLanguage" | "avatarUrl">;
+  /** True when the signed-in user placed this call. */
+  outgoing: boolean;
+  outcome: CallOutcome;
+  /** When the call was placed. */
+  at: string;
+  /** Talk time in seconds; null when the call never connected. */
+  durationSeconds: number | null;
+  /** The language pair the call ran with, as snapshotted on the row. */
+  fromLanguage: CallLanguageCode;
+  toLanguage: CallLanguageCode;
+}
+
+/**
+ * Maps a stored call row onto what it meant for one participant.
+ *
+ * "Missed" and "cancelled" are the same stored status (`ended` with no
+ * connection) seen from opposite sides: the person who was rung missed it,
+ * the person who rang gave up.
+ */
+export function callOutcome({
+  status,
+  connected,
+  outgoing,
+}: {
+  status: CallStatus;
+  connected: boolean;
+  outgoing: boolean;
+}): CallOutcome {
+  if (status === "failed") return "failed";
+  if (status === "declined") return "declined";
+  if (connected) return "completed";
+  return outgoing ? "cancelled" : "missed";
 }

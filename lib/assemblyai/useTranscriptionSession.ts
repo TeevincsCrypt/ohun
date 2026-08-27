@@ -33,18 +33,40 @@ const initialState: TranscriptionSessionState = {
   translationError: null,
 };
 
+export interface TranslationPayload {
+  /** What the speaker said, in their own language. */
+  originalText: string;
+  /** The same utterance rendered in the listener's language. */
+  translatedText: string;
+}
+
 interface SessionOptions {
   /** The language this participant speaks. */
   language: LanguageCode;
   /** The language their speech is translated into. */
   targetLanguage: LanguageCode;
+  /**
+   * Speak the translation on this device. True for the single-device demo
+   * at /conversation, where both participants share one browser. False in
+   * a call, where the translation has to be spoken on the *other* person's
+   * device — see onTranslation.
+   */
+  speakLocally?: boolean;
+  /** Fired once an utterance has been translated, for delivery to the peer. */
+  onTranslation?: (payload: TranslationPayload) => void;
 }
 
 /**
- * Drives one participant's mic -> AssemblyAI transcription -> translation ->
- * spoken playback, and exposes the state their panel renders.
+ * Drives one participant's mic -> AssemblyAI transcription -> translation,
+ * and either speaks the result here or hands it to the caller for delivery
+ * elsewhere.
  */
-export function useTranscriptionSession({ language, targetLanguage }: SessionOptions) {
+export function useTranscriptionSession({
+  language,
+  targetLanguage,
+  speakLocally = true,
+  onTranslation,
+}: SessionOptions) {
   const [state, setState] = useState<TranscriptionSessionState>(initialState);
 
   const recorderRef = useRef<MicRecorder | null>(null);
@@ -70,6 +92,11 @@ export function useTranscriptionSession({ language, targetLanguage }: SessionOpt
   const translationAbortRef = useRef<AbortController | null>(null);
   /** Latest translation, kept for the "Repeat translation" button. */
   const lastTranslationRef = useRef("");
+
+  // Held in a ref so a caller passing an inline arrow does not retrigger the
+  // media effect on every render and tear down a live transcription stream.
+  const onTranslationRef = useRef(onTranslation);
+  onTranslationRef.current = onTranslation;
 
   const composeTranscript = useCallback(
     () => [priorTurnsRef.current, currentTurnTextRef.current].filter(Boolean).join(" "),
@@ -145,7 +172,11 @@ export function useTranscriptionSession({ language, targetLanguage }: SessionOpt
           isTranslating: false,
         }));
 
-        await speak({ text: translatedText, languageCode: localeFor(targetLanguage) });
+        onTranslationRef.current?.({ originalText: text, translatedText });
+
+        if (speakLocally) {
+          await speak({ text: translatedText, languageCode: localeFor(targetLanguage) });
+        }
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
         console.error("[ohun] translation failed", error);
@@ -158,7 +189,7 @@ export function useTranscriptionSession({ language, targetLanguage }: SessionOpt
         }));
       }
     },
-    [language, targetLanguage],
+    [language, targetLanguage, speakLocally],
   );
 
   /** Re-speak the most recent translation. */

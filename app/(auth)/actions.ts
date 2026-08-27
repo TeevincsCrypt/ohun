@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient, SupabaseConfigError } from "@/lib/supabase/server";
+import { siteOrigin } from "@/lib/site-origin";
 import { isCallLanguage, validateUsername } from "@/types";
 
 export interface AuthFormState {
@@ -71,6 +72,7 @@ export async function signUp(
     email,
     password,
     options: {
+      emailRedirectTo: `${await siteOrigin()}/confirm`,
       data: {
         username,
         display_name: displayName,
@@ -96,7 +98,7 @@ export async function signUp(
   if (!signUpData.session) {
     return {
       error: null,
-      info: "Account created. Check your email to confirm it, then log in.",
+      info: `Almost there — we sent a confirmation link to ${email}. Open it to activate your account.`,
     };
   }
 
@@ -146,4 +148,36 @@ export async function signOut() {
   }
   revalidatePath("/", "layout");
   redirect("/login");
+}
+
+/** Re-sends the confirmation email for an address that never got activated. */
+export async function resendConfirmation(
+  _prev: AuthFormState,
+  formData: FormData,
+): Promise<AuthFormState> {
+  const email = String(formData.get("email") ?? "").trim();
+  if (!email) return { error: "Enter the email you signed up with." };
+
+  let supabase: Awaited<ReturnType<typeof createClient>>;
+  try {
+    supabase = await createClient();
+  } catch (error) {
+    if (error instanceof SupabaseConfigError) return { error: CONFIG_ERROR_MESSAGE };
+    throw error;
+  }
+
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email,
+    options: { emailRedirectTo: `${await siteOrigin()}/confirm` },
+  });
+
+  // Deliberately vague on failure: confirming whether an address has an
+  // account would let anyone enumerate registered users.
+  if (error && !/rate/i.test(error.message)) {
+    return { error: null, info: "If that address needs confirming, a new link is on its way." };
+  }
+  if (error) return { error: "Too many requests — wait a minute and try again." };
+
+  return { error: null, info: "A new confirmation link is on its way." };
 }

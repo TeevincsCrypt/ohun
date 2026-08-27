@@ -4,29 +4,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { startCall, touchPresence } from "@/lib/calls/actions";
+import { listScheduledCalls } from "@/lib/schedule/actions";
 import { UserResult } from "@/components/ohun/UserResult";
+import { UpcomingCalls } from "@/components/ohun/UpcomingCalls";
+import { ScheduleCallDialog } from "@/components/ohun/ScheduleCallDialog";
+import { UpgradeDialog } from "@/components/ohun/UpgradeDialog";
+import { RecentActivity } from "@/components/ohun/RecentActivity";
 import { Pill } from "@/components/ui";
-import type { Profile } from "@/types";
+import { PROFILE_COLUMNS, toProfile, type ProfileRow } from "@/lib/supabase/profile";
+import type { Profile, ScheduledCall } from "@/types";
 
 const PRESENCE_INTERVAL_MS = 30_000;
-
-interface ProfileRow {
-  id: string;
-  username: string;
-  display_name: string;
-  preferred_language: Profile["preferredLanguage"];
-  last_seen_at: string;
-}
-
-function toProfile(row: ProfileRow): Profile {
-  return {
-    id: row.id,
-    username: row.username,
-    displayName: row.display_name,
-    preferredLanguage: row.preferred_language,
-    lastSeenAt: row.last_seen_at,
-  };
-}
 
 export function PeopleClient({ self }: { self: Profile }) {
   const router = useRouter();
@@ -39,7 +27,16 @@ export function PeopleClient({ self }: { self: Profile }) {
   });
   const [error, setError] = useState<string | null>(null);
   const [callingId, setCallingId] = useState<string | null>(null);
+  const [scheduling, setScheduling] = useState<Profile | null>(null);
+  const [scheduled, setScheduled] = useState<ScheduledCall[]>([]);
+  const [showUpgrade, setShowUpgrade] = useState(false);
   const requestRef = useRef(0);
+
+  const refreshScheduled = useCallback(() => {
+    void listScheduledCalls().then(setScheduled);
+  }, []);
+
+  useEffect(refreshScheduled, [refreshScheduled]);
 
   const term = query.trim().replace(/^@/, "");
   const matchesQuery = results.term === term;
@@ -63,9 +60,12 @@ export function PeopleClient({ self }: { self: Profile }) {
       const pattern = `%${term}%`;
       const { data, error: searchError } = await supabase
         .from("profiles")
-        .select("id, username, display_name, preferred_language, last_seen_at")
+        .select(PROFILE_COLUMNS)
         .or(`username.ilike.${pattern},display_name.ilike.${pattern}`)
         .neq("id", self.id)
+        // Anonymous room-link visitors have profiles so calls work, but
+        // they are throwaway identities and must not clutter search.
+        .eq("is_guest", false)
         .limit(20);
 
       // A newer keystroke already superseded this request.
@@ -84,12 +84,16 @@ export function PeopleClient({ self }: { self: Profile }) {
   }, [term, self.id]);
 
   const handleCall = useCallback(
-    async (profile: Profile) => {
+    async (profile: Pick<Profile, "id" | "displayName">) => {
       setCallingId(profile.id);
       setError(null);
-      const { callId, error: callError } = await startCall(profile.id);
+      const { callId, error: callError, code } = await startCall(profile.id);
       if (callError || !callId) {
-        setError(callError ?? "Could not start the call.");
+        if (code === "free_tier_exhausted") {
+          setShowUpgrade(true);
+        } else {
+          setError(callError ?? "Could not start the call.");
+        }
         setCallingId(null);
         return;
       }
@@ -100,20 +104,49 @@ export function PeopleClient({ self }: { self: Profile }) {
 
   return (
     <>
+      {showUpgrade && <UpgradeDialog onClose={() => setShowUpgrade(false)} />}
+
+      {scheduling && (
+        <ScheduleCallDialog
+          invitee={scheduling}
+          onClose={() => setScheduling(null)}
+          onScheduled={() => {
+            setScheduling(null);
+            refreshScheduled();
+          }}
+        />
+      )}
+
       <div className="flex flex-col gap-6">
         <div className="flex flex-col gap-2">
           <label htmlFor="search" className="text-sm font-medium text-[var(--muted)]">
             Find someone
           </label>
-          <input
-            id="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="@marie or Marie Dupont"
-            autoComplete="off"
-            spellCheck={false}
-            className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 text-base text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted)] focus-visible:border-[var(--foreground)]"
-          />
+          <div className="relative">
+            <svg
+              aria-hidden
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+            <input
+              id="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="@marie or Marie Dupont"
+              autoComplete="off"
+              spellCheck={false}
+              className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] pl-11 pr-4 text-base text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted)] focus-visible:border-[var(--accent)]"
+            />
+          </div>
         </div>
 
         {error && (
@@ -128,6 +161,7 @@ export function PeopleClient({ self }: { self: Profile }) {
               key={profile.id}
               profile={profile}
               onCall={handleCall}
+              onSchedule={setScheduling}
               isCalling={callingId === profile.id}
             />
           ))}
@@ -139,12 +173,19 @@ export function PeopleClient({ self }: { self: Profile }) {
           </p>
         )}
 
-        {term.length < 2 && (
-          <p className="text-center text-sm text-[var(--muted)]">
-            Search by username or name to start a call.
-          </p>
+        {term.length >= 2 && searching && (
+          <p className="text-center text-sm text-[var(--muted)]">Searching…</p>
         )}
       </div>
+
+      {/* Only reference material below this point, so it sits under the
+          search box rather than pushing it down the page. */}
+      {term.length < 2 && (
+        <div className="mt-10">
+          <UpcomingCalls scheduled={scheduled} onChanged={refreshScheduled} />
+          <RecentActivity onCall={handleCall} />
+        </div>
+      )}
     </>
   );
 }

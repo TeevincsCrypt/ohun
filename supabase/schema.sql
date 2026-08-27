@@ -161,3 +161,258 @@ do $$ begin
   alter publication supabase_realtime add table public.calls;
 exception when duplicate_object then null;
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- Phase 5: profile extras (avatar, phone) + scheduled calls.
+-- Safe to re-run; every statement is idempotent.
+-- ---------------------------------------------------------------------------
+
+alter table public.profiles
+  add column if not exists avatar_url text,
+  add column if not exists phone      text;
+
+-- E.164-ish: a leading + and 7-15 digits. Nullable, so an empty profile is
+-- still valid; the constraint only bites once a number is actually set.
+do $$ begin
+  alter table public.profiles
+    add constraint phone_format check (phone is null or phone ~ '^\+[1-9]\d{6,14}$');
+exception when duplicate_object then null;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- scheduled_calls
+-- ---------------------------------------------------------------------------
+do $$ begin
+  create type scheduled_call_status as enum ('pending', 'started', 'cancelled', 'missed');
+exception when duplicate_object then null;
+end $$;
+
+create table if not exists public.scheduled_calls (
+  id           uuid primary key default gen_random_uuid(),
+  organizer_id uuid not null references public.profiles(id) on delete cascade,
+  invitee_id   uuid not null references public.profiles(id) on delete cascade,
+  scheduled_at timestamptz not null,
+  note         text,
+  status       scheduled_call_status not null default 'pending',
+  -- Set once the scheduled call is actually placed, linking the two.
+  call_id      uuid references public.calls(id) on delete set null,
+  created_at   timestamptz not null default now(),
+
+  constraint no_self_schedule check (organizer_id <> invitee_id),
+  constraint note_length check (note is null or char_length(note) <= 280)
+);
+
+-- Drives "what's coming up" for both sides.
+create index if not exists scheduled_calls_organizer_idx
+  on public.scheduled_calls (organizer_id, scheduled_at);
+create index if not exists scheduled_calls_invitee_idx
+  on public.scheduled_calls (invitee_id, scheduled_at);
+
+alter table public.scheduled_calls enable row level security;
+
+-- You only ever see a scheduled call you are a party to.
+drop policy if exists "read own scheduled calls" on public.scheduled_calls;
+create policy "read own scheduled calls"
+  on public.scheduled_calls for select
+  to authenticated
+  using (auth.uid() = organizer_id or auth.uid() = invitee_id);
+
+-- You may only schedule as yourself.
+drop policy if exists "create scheduled call as organizer" on public.scheduled_calls;
+create policy "create scheduled call as organizer"
+  on public.scheduled_calls for insert
+  to authenticated
+  with check (auth.uid() = organizer_id);
+
+-- Either party may cancel; the organizer may reschedule.
+drop policy if exists "update own scheduled calls" on public.scheduled_calls;
+create policy "update own scheduled calls"
+  on public.scheduled_calls for update
+  to authenticated
+  using (auth.uid() = organizer_id or auth.uid() = invitee_id)
+  with check (auth.uid() = organizer_id or auth.uid() = invitee_id);
+
+drop policy if exists "delete own scheduled calls" on public.scheduled_calls;
+create policy "delete own scheduled calls"
+  on public.scheduled_calls for delete
+  to authenticated
+  using (auth.uid() = organizer_id);
+
+-- Realtime so an invitee sees a new invitation without reloading.
+do $$ begin
+  alter publication supabase_realtime add table public.scheduled_calls;
+exception when duplicate_object then null;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Avatar storage.
+--
+-- Public bucket: avatars are shown next to usernames in search results, so
+-- they are already public information. Writes are still restricted to the
+-- owner by the policies below, keyed on the first path segment being the
+-- user's own id (i.e. avatars/<uid>/<file>).
+-- ---------------------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('avatars', 'avatars', true)
+on conflict (id) do nothing;
+
+drop policy if exists "avatars are publicly readable" on storage.objects;
+create policy "avatars are publicly readable"
+  on storage.objects for select
+  to anon, authenticated
+  using (bucket_id = 'avatars');
+
+drop policy if exists "users upload own avatar" on storage.objects;
+create policy "users upload own avatar"
+  on storage.objects for insert
+  to authenticated
+  with check (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "users update own avatar" on storage.objects;
+create policy "users update own avatar"
+  on storage.objects for update
+  to authenticated
+  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "users delete own avatar" on storage.objects;
+create policy "users delete own avatar"
+  on storage.objects for delete
+  to authenticated
+  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- ---------------------------------------------------------------------------
+-- Phase 6: billing (free tier + tiun subscription). Safe to re-run.
+-- ---------------------------------------------------------------------------
+
+alter table public.profiles
+  add column if not exists subscription_status      text not null default 'free',
+  add column if not exists subscription_product_id  text,
+  add column if not exists free_calls_used           integer not null default 0,
+  add column if not exists free_period_started_at    timestamptz not null default now();
+
+do $$ begin
+  alter table public.profiles
+    add constraint subscription_status_values check (subscription_status in ('free', 'active'));
+exception when duplicate_object then null;
+end $$;
+
+-- Column-level privilege, layered UNDER row level security rather than
+-- replacing it. The "update own profile" RLS policy above lets a user
+-- update their own row at all, which is correct for display_name/phone/
+-- preferred_language/avatar_url — but without this, the same policy would
+-- let anyone open devtools and run
+--   supabase.from('profiles').update({ subscription_status: 'active' })
+-- to grant themselves a paid plan for free. These four columns are only
+-- ever written by server code using the service-role client (see
+-- lib/supabase/admin.ts), which bypasses RLS and grants entirely, so the
+-- revoke below is what actually protects them.
+revoke update (
+  subscription_status,
+  subscription_product_id,
+  free_calls_used,
+  free_period_started_at
+) on public.profiles from authenticated, anon;
+
+-- ---------------------------------------------------------------------------
+-- Phase 7: recent activity.
+--
+-- ended_at alone cannot give a call's real length, because created_at is
+-- when the phone started ringing, not when the two sides connected. Stamp
+-- the connection separately so history can show talk time rather than
+-- ring-plus-talk time.
+-- ---------------------------------------------------------------------------
+alter table public.calls
+  add column if not exists connected_at timestamptz;
+
+-- Backs the history query: a user's calls, newest first.
+create index if not exists calls_caller_created_idx
+  on public.calls (caller_id, created_at desc);
+create index if not exists calls_receiver_created_idx
+  on public.calls (receiver_id, created_at desc);
+
+-- ---------------------------------------------------------------------------
+-- Phase 8: shareable room links.
+--
+-- A room link is "dial this person" as a URL, so it can go in a bio and be
+-- opened by someone with no account. Two things follow from that:
+--
+--   * The slug is random and rotatable rather than being the username. A
+--     link posted publicly is one you may need to revoke after it attracts
+--     the wrong attention, and you cannot revoke a username.
+--   * Visitors without an account sign in anonymously, which creates a real
+--     auth.users row — so RLS, the calls table and the profile trigger all
+--     work unchanged rather than needing a parallel guest path.
+-- ---------------------------------------------------------------------------
+
+-- 10 chars of base32-ish alphabet, ambiguous characters removed so a slug
+-- can be read aloud or copied off a screen without confusion.
+create or replace function public.generate_room_slug()
+returns text
+language sql
+volatile
+as $$
+  select string_agg(
+    substr('abcdefghjkmnpqrstuvwxyz23456789', floor(random() * 31)::int + 1, 1),
+    ''
+  )
+  from generate_series(1, 10);
+$$;
+
+alter table public.profiles
+  add column if not exists room_slug text,
+  -- Anonymous visitors get a profile so calls work, but they are not real
+  -- accounts: they must not surface in username search.
+  add column if not exists is_guest boolean not null default false;
+
+-- Backfill existing rows before the unique index goes on.
+update public.profiles set room_slug = public.generate_room_slug()
+where room_slug is null;
+
+alter table public.profiles
+  alter column room_slug set default public.generate_room_slug();
+
+create unique index if not exists profiles_room_slug_key
+  on public.profiles (room_slug);
+
+-- room_slug is how a link is revoked, so it must not be writable by the
+-- client directly — rotation goes through a server action that regenerates
+-- it. is_guest decides search visibility and must not be self-serve either.
+revoke update (room_slug, is_guest) on public.profiles from authenticated, anon;
+
+-- ---------------------------------------------------------------------------
+-- The signup trigger has to cope with anonymous users now: they arrive with
+-- no email and no metadata, so the previous split_part(new.email, ...) would
+-- have produced a null display name and a null username.
+-- ---------------------------------------------------------------------------
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  meta_username text := lower(new.raw_user_meta_data ->> 'username');
+  is_anon boolean := new.email is null;
+begin
+  insert into public.profiles (id, username, display_name, preferred_language, is_guest)
+  values (
+    new.id,
+    -- Guests never pick a username; generate one that cannot collide with
+    -- a real signup, which is constrained to 3-20 chars of [a-z0-9_].
+    coalesce(meta_username, 'guest_' || substr(replace(new.id::text, '-', ''), 1, 12)),
+    coalesce(
+      new.raw_user_meta_data ->> 'display_name',
+      case when is_anon then 'Guest' else split_part(new.email, '@', 1) end
+    ),
+    -- Metadata is client-supplied, so an unexpected value would otherwise
+    -- trip the check constraint and fail the whole signup. Coerce instead.
+    case
+      when new.raw_user_meta_data ->> 'preferred_language' in ('en', 'fr', 'es')
+        then new.raw_user_meta_data ->> 'preferred_language'
+      else 'en'
+    end,
+    is_anon
+  );
+  return new;
+end;
+$$;
