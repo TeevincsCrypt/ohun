@@ -87,7 +87,7 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
   const offerSentRef = useRef(false);
   const teardownRef = useRef(false);
   /** Set once the transcription hook below exists — see speakIncoming. */
-  const suppressInputRef = useRef<((suppressed: boolean) => void) | null>(null);
+  const suppressInputRef = useRef<((suppressed: boolean, reason: string) => void) | null>(null);
 
   /** Attach the remote stream to the <audio> element the room renders. */
   const attachRemoteAudio = useCallback((element: HTMLAudioElement | null) => {
@@ -118,12 +118,12 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
       // speechSynthesis — so without this the app transcribes its own
       // output, translates it, and sends it back, and the two sides end up
       // talking to each other unprompted.
-      suppressInputRef.current?.(true);
+      suppressInputRef.current?.(true, "playback");
 
       try {
         await speak({ text, languageCode: localeFor(myLanguage) });
       } finally {
-        suppressInputRef.current?.(false);
+        suppressInputRef.current?.(false, "playback");
         // Never un-mute something the user muted themselves.
         if (element) element.muted = wasMuted || !speakerEnabledRef.current;
       }
@@ -147,6 +147,9 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
    * translated text crosses the network — never synthesized audio.
    */
   const transcription = useTranscriptionSession({
+    // The peer's capture, shared rather than opened a second time — see
+    // toggleMicrophone.
+    stream: localStream,
     language: myLanguage,
     targetLanguage: theirLanguage,
     speakLocally: false,
@@ -369,12 +372,12 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
   const stopTranscription = transcription.stop;
 
   useEffect(() => {
-    if (connectionState !== "connected") return;
+    if (connectionState !== "connected" || !localStream) return;
     void startTranscription();
     return () => {
       void stopTranscription();
     };
-  }, [connectionState, startTranscription, stopTranscription]);
+  }, [connectionState, localStream, startTranscription, stopTranscription]);
 
   // --- duration ------------------------------------------------------------
   useEffect(() => {
@@ -402,6 +405,10 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
     if (!peer) return;
     const next = !peer.isMicrophoneEnabled();
     peer.setMicrophoneEnabled(next);
+    // Transcription holds its own microphone capture, so disabling the
+    // outgoing track only silences the other side. Without this a muted
+    // caller is still transcribed, translated and sent as captions.
+    suppressInputRef.current?.(!next, "muted");
     setMicEnabled(next);
   }, []);
 

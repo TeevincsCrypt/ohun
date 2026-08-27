@@ -66,6 +66,8 @@ export function createMicRecorder(config: MicRecorderConfig): MicRecorder {
   let workletNode: AudioWorkletNode | null = null;
   let sourceNode: MediaStreamAudioSourceNode | null = null;
   let stream: MediaStream | null = null;
+  /** True when the stream came from the caller, so teardown must not stop it. */
+  let borrowedStream = false;
   let resampler: LinearResampler | null = null;
 
   async function start() {
@@ -73,12 +75,17 @@ export function createMicRecorder(config: MicRecorderConfig): MicRecorder {
       throw new MicrophoneError("unsupported", "This browser does not support microphone capture.");
     }
 
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
-      });
-    } catch (error) {
-      throw toMicrophoneError(error);
+    if (config.stream) {
+      stream = config.stream;
+      borrowedStream = true;
+    } else {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
+        });
+      } catch (error) {
+        throw toMicrophoneError(error);
+      }
     }
 
     try {
@@ -129,12 +136,15 @@ export function createMicRecorder(config: MicRecorderConfig): MicRecorder {
       workletNode.disconnect();
     }
     sourceNode?.disconnect();
-    stream?.getTracks().forEach((track) => track.stop());
+    // Only stop tracks this recorder opened. A borrowed stream belongs to
+    // the call, which is still using it to talk to the other participants.
+    if (!borrowedStream) stream?.getTracks().forEach((track) => track.stop());
     void audioContext?.close();
 
     workletNode = null;
     sourceNode = null;
     stream = null;
+    borrowedStream = false;
     audioContext = null;
     resampler = null;
   }

@@ -59,7 +59,7 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
    * an effect and needs to reach back into it, which this indirection
    * allows without ordering the two.
    */
-  const suppressInputRef = useRef<((suppressed: boolean) => void) | null>(null);
+  const suppressInputRef = useRef<((suppressed: boolean, reason: string) => void) | null>(null);
   const leftRef = useRef(false);
 
   /** One <audio> element per peer, attached by the room UI. */
@@ -117,6 +117,9 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
    * language present and broadcast for the others to speak and caption.
    */
   const transcription = useTranscriptionSession({
+    // The mesh's capture, shared rather than opened a second time, so that
+    // muting — which disables these tracks — stops transcription too.
+    stream: localStream,
     language: myLanguage,
     // Unused in the group path — onTranslation below does the fan-out — but
     // the hook requires a target, so name the first one for its logging.
@@ -187,7 +190,7 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
         // live speech, and stop feeding transcription so the microphone
         // does not hear this playback and transcribe it back — which is
         // what makes a room start talking to itself.
-        suppressInputRef.current?.(speaking);
+        suppressInputRef.current?.(speaking, "playback");
         audioElementsRef.current.forEach((element) => {
           element.muted = speaking || !speakerEnabledRef.current;
         });
@@ -324,12 +327,16 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
   const startTranscription = transcription.start;
   const stopTranscription = transcription.stop;
 
+  // Waits for the mesh's capture: starting earlier would make the recorder
+  // fall back to opening its own microphone, which is the split that let a
+  // muted participant keep being transcribed.
   useEffect(() => {
+    if (!localStream) return;
     void startTranscription();
     return () => {
       void stopTranscription();
     };
-  }, [startTranscription, stopTranscription]);
+  }, [localStream, startTranscription, stopTranscription]);
 
   // --- duration ------------------------------------------------------------
   useEffect(() => {
@@ -353,6 +360,10 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
     if (!mesh) return;
     const next = !mesh.isMicrophoneEnabled();
     mesh.setMicrophoneEnabled(next);
+    // Transcription holds its own microphone capture, so disabling the
+    // outgoing track only silences peers. Without this a muted participant
+    // is still transcribed, translated and captioned to the whole room.
+    suppressInputRef.current?.(!next, "muted");
     setMicEnabled(next);
   }, []);
 

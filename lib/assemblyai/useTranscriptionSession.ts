@@ -63,6 +63,12 @@ interface SessionOptions {
   translateManually?: boolean;
   /** Receives each completed utterance when translateManually is set. */
   onUtterance?: (text: string) => void | Promise<void>;
+  /**
+   * A microphone stream the caller already holds, shared rather than
+   * captured again. See MicRecorderConfig.stream — a call passes the one
+   * WebRTC is using so that muting affects both.
+   */
+  stream?: MediaStream | null;
 }
 
 /**
@@ -77,6 +83,7 @@ export function useTranscriptionSession({
   translateManually = false,
   onTranslation,
   onUtterance,
+  stream,
 }: SessionOptions) {
   const [state, setState] = useState<TranscriptionSessionState>(initialState);
 
@@ -105,19 +112,26 @@ export function useTranscriptionSession({
   const lastTranslationRef = useRef("");
 
   /**
-   * While true, microphone audio is captured but not sent for
-   * transcription.
+   * Reasons transcription input is currently withheld. Audio is still
+   * captured; it just is not sent for transcription while any reason holds.
    *
-   * Synthesized translations play through the same speakers the microphone
-   * is listening to, and browser echo cancellation covers the WebRTC render
-   * path, not speechSynthesis. Without this gate the app transcribes its own
-   * output, translates that, and broadcasts it — which in a group call
-   * compounds into a room that talks to itself.
+   * A set rather than a flag because the reasons are independent and
+   * overlap. Muting while a translation is playing, then the translation
+   * finishing, must not un-mute — which is exactly what a single boolean
+   * would do, since whichever cause cleared last would win.
    *
-   * Audio still flows to peers throughout, so interrupting someone is
-   * audible; only the transcript loses those moments.
+   * The two reasons in use:
+   *   "playback" — a synthesized translation is being spoken. It comes out
+   *     of the same speakers the microphone is listening to, and browser
+   *     echo cancellation covers the WebRTC render path rather than
+   *     speechSynthesis, so without this the app transcribes its own output.
+   *   "muted" — the user muted themselves. Transcription captures the
+   *     microphone through its own getUserMedia, separate from the one
+   *     WebRTC holds, so disabling the outgoing track silences peers but
+   *     leaves transcription running. Muting has to stop both, or a muted
+   *     participant is still captioned and translated to the room.
    */
-  const inputSuppressedRef = useRef(false);
+  const suppressReasonsRef = useRef(new Set<string>());
 
   // Held in a ref so a caller passing an inline arrow does not retrigger the
   // media effect on every render and tear down a live transcription stream.
@@ -126,6 +140,9 @@ export function useTranscriptionSession({
 
   const onUtteranceRef = useRef(onUtterance);
   onUtteranceRef.current = onUtterance;
+
+  const streamRefOption = useRef(stream);
+  streamRefOption.current = stream;
 
   const composeTranscript = useCallback(
     () => [priorTurnsRef.current, currentTurnTextRef.current].filter(Boolean).join(" "),
@@ -336,8 +353,9 @@ export function useTranscriptionSession({
       streamRef.current = stream;
 
       const recorder = createMicRecorder({
+        stream: streamRefOption.current ?? undefined,
         onAudioChunk: (chunk) => {
-          if (inputSuppressedRef.current) return;
+          if (suppressReasonsRef.current.size > 0) return;
           streamRef.current?.sendAudio(chunk);
         },
         onError: (error) => {
@@ -385,9 +403,10 @@ export function useTranscriptionSession({
     };
   }, [teardown]);
 
-  /** Gate transcription input — see inputSuppressedRef. */
-  const setInputSuppressed = useCallback((suppressed: boolean) => {
-    inputSuppressedRef.current = suppressed;
+  /** Gate transcription input under a named reason — see suppressReasonsRef. */
+  const setInputSuppressed = useCallback((suppressed: boolean, reason: string) => {
+    if (suppressed) suppressReasonsRef.current.add(reason);
+    else suppressReasonsRef.current.delete(reason);
   }, []);
 
   return {
