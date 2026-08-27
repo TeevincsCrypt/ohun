@@ -4,29 +4,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { startCall, touchPresence } from "@/lib/calls/actions";
+import { listScheduledCalls } from "@/lib/schedule/actions";
 import { UserResult } from "@/components/ohun/UserResult";
+import { UpcomingCalls } from "@/components/ohun/UpcomingCalls";
+import { ScheduleCallDialog } from "@/components/ohun/ScheduleCallDialog";
 import { Pill } from "@/components/ui";
-import type { Profile } from "@/types";
+import { PROFILE_COLUMNS, toProfile, type ProfileRow } from "@/lib/supabase/profile";
+import type { Profile, ScheduledCall } from "@/types";
 
 const PRESENCE_INTERVAL_MS = 30_000;
-
-interface ProfileRow {
-  id: string;
-  username: string;
-  display_name: string;
-  preferred_language: Profile["preferredLanguage"];
-  last_seen_at: string;
-}
-
-function toProfile(row: ProfileRow): Profile {
-  return {
-    id: row.id,
-    username: row.username,
-    displayName: row.display_name,
-    preferredLanguage: row.preferred_language,
-    lastSeenAt: row.last_seen_at,
-  };
-}
 
 export function PeopleClient({ self }: { self: Profile }) {
   const router = useRouter();
@@ -39,7 +25,15 @@ export function PeopleClient({ self }: { self: Profile }) {
   });
   const [error, setError] = useState<string | null>(null);
   const [callingId, setCallingId] = useState<string | null>(null);
+  const [scheduling, setScheduling] = useState<Profile | null>(null);
+  const [scheduled, setScheduled] = useState<ScheduledCall[]>([]);
   const requestRef = useRef(0);
+
+  const refreshScheduled = useCallback(() => {
+    void listScheduledCalls().then(setScheduled);
+  }, []);
+
+  useEffect(refreshScheduled, [refreshScheduled]);
 
   const term = query.trim().replace(/^@/, "");
   const matchesQuery = results.term === term;
@@ -63,7 +57,7 @@ export function PeopleClient({ self }: { self: Profile }) {
       const pattern = `%${term}%`;
       const { data, error: searchError } = await supabase
         .from("profiles")
-        .select("id, username, display_name, preferred_language, last_seen_at")
+        .select(PROFILE_COLUMNS)
         .or(`username.ilike.${pattern},display_name.ilike.${pattern}`)
         .neq("id", self.id)
         .limit(20);
@@ -100,6 +94,19 @@ export function PeopleClient({ self }: { self: Profile }) {
 
   return (
     <>
+      <UpcomingCalls scheduled={scheduled} onChanged={refreshScheduled} />
+
+      {scheduling && (
+        <ScheduleCallDialog
+          invitee={scheduling}
+          onClose={() => setScheduling(null)}
+          onScheduled={() => {
+            setScheduling(null);
+            refreshScheduled();
+          }}
+        />
+      )}
+
       <div className="flex flex-col gap-6">
         <div className="flex flex-col gap-2">
           <label htmlFor="search" className="text-sm font-medium text-[var(--muted)]">
@@ -128,6 +135,7 @@ export function PeopleClient({ self }: { self: Profile }) {
               key={profile.id}
               profile={profile}
               onCall={handleCall}
+              onSchedule={setScheduling}
               isCalling={callingId === profile.id}
             />
           ))}

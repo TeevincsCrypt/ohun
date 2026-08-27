@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { getCurrentProfile } from "@/lib/supabase/server";
 import { signOut } from "@/app/(auth)/actions";
 import { PeopleClient } from "./PeopleClient";
 import { Logo } from "@/components/ohun";
-import { LanguageTag } from "@/components/ohun/UserResult";
+import { Avatar, LanguageTag } from "@/components/ohun/UserResult";
 
 /** Per-user and session-dependent — must never be prerendered at build time. */
 export const dynamic = "force-dynamic";
@@ -17,12 +18,15 @@ export default async function PeoplePage() {
       <header className="flex items-center justify-between border-b border-[var(--border)] px-6 py-4">
         <Logo />
         <div className="flex items-center gap-4">
-          <div className="hidden text-right sm:block">
-            <p className="text-sm font-medium">{profile.displayName}</p>
-            <p className="text-xs text-[var(--muted)]">
-              @{profile.username} · <LanguageTag code={profile.preferredLanguage} />
-            </p>
-          </div>
+          <Link href="/profile" className="flex items-center gap-3 rounded-full pr-1 transition-opacity hover:opacity-80">
+            <div className="hidden text-right sm:block">
+              <p className="text-sm font-medium">{profile.displayName}</p>
+              <p className="text-xs text-[var(--muted)]">
+                @{profile.username} · <LanguageTag code={profile.preferredLanguage} />
+              </p>
+            </div>
+            <Avatar name={profile.displayName} src={profile.avatarUrl} />
+          </Link>
           <form action={signOut}>
             <button
               type="submit"

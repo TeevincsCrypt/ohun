@@ -50,7 +50,29 @@ export interface Profile {
   displayName: string;
   preferredLanguage: CallLanguageCode;
   lastSeenAt: string;
+  avatarUrl: string | null;
+  phone: string | null;
 }
+
+/** E.164: a leading + and 7-15 digits. Mirrors the DB constraint. */
+export const PHONE_PATTERN = /^\+[1-9]\d{6,14}$/;
+
+export function validatePhone(phone: string): string | null {
+  if (!phone) return null;
+  if (!PHONE_PATTERN.test(phone)) {
+    return "Use an international number, e.g. +2348012345678.";
+  }
+  return null;
+}
+
+export function validateDisplayName(displayName: string): string | null {
+  if (!displayName.trim()) return "Enter a display name.";
+  if (displayName.trim().length > 50) return "Display names are at most 50 characters.";
+  return null;
+}
+
+export const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
+export const AVATAR_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 /** Treated as online if seen within this window. */
 export const ONLINE_WINDOW_MS = 60_000;
@@ -106,4 +128,38 @@ export interface CallCaption {
   /** The same utterance in the listener's language. */
   translatedText: string;
   at: number;
+}
+
+export type ScheduledCallStatus = "pending" | "started" | "cancelled" | "missed";
+
+export interface ScheduledCall {
+  id: string;
+  organizerId: string;
+  inviteeId: string;
+  /** ISO timestamp. */
+  scheduledAt: string;
+  note: string | null;
+  status: ScheduledCallStatus;
+  callId: string | null;
+  createdAt: string;
+  /** The other party, resolved for display. */
+  counterpart: Pick<Profile, "id" | "username" | "displayName" | "preferredLanguage" | "avatarUrl">;
+  /** True when the signed-in user created this. */
+  organizedBySelf: boolean;
+}
+
+/** A scheduled call is joinable from a few minutes before until it goes stale. */
+export const JOIN_WINDOW_BEFORE_MS = 5 * 60_000;
+export const JOIN_WINDOW_AFTER_MS = 30 * 60_000;
+
+export function isJoinable(scheduled: Pick<ScheduledCall, "scheduledAt" | "status">): boolean {
+  if (scheduled.status !== "pending") return false;
+  const delta = new Date(scheduled.scheduledAt).getTime() - Date.now();
+  return delta <= JOIN_WINDOW_BEFORE_MS && delta >= -JOIN_WINDOW_AFTER_MS;
+}
+
+/** Past the join window with nobody having started it. */
+export function isMissed(scheduled: Pick<ScheduledCall, "scheduledAt" | "status">): boolean {
+  if (scheduled.status !== "pending") return false;
+  return new Date(scheduled.scheduledAt).getTime() < Date.now() - JOIN_WINDOW_AFTER_MS;
 }

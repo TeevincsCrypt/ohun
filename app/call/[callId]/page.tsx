@@ -1,7 +1,8 @@
 import { redirect, notFound } from "next/navigation";
 import { createClient, getCurrentProfile } from "@/lib/supabase/server";
+import { PROFILE_COLUMNS, toProfile, type ProfileRow } from "@/lib/supabase/profile";
 import { CallRoom } from "@/components/ohun/CallRoom";
-import type { Call, Profile } from "@/types";
+import type { Call } from "@/types";
 
 /** Per-user and session-dependent — must never be prerendered at build time. */
 export const dynamic = "force-dynamic";
@@ -36,7 +37,7 @@ export default async function CallPage({
 
   const { data: otherRow } = await supabase
     .from("profiles")
-    .select("id, username, display_name, preferred_language, last_seen_at")
+    .select(PROFILE_COLUMNS)
     .eq("id", otherId)
     .maybeSingle();
 
@@ -53,13 +54,7 @@ export default async function CallPage({
     endedAt: callRow.ended_at,
   };
 
-  const other: Profile = {
-    id: otherRow.id,
-    username: otherRow.username,
-    displayName: otherRow.display_name,
-    preferredLanguage: otherRow.preferred_language,
-    lastSeenAt: otherRow.last_seen_at,
-  };
+  const other = toProfile(otherRow as ProfileRow);
 
   return <CallRoom call={call} self={self} other={other} />;
 }

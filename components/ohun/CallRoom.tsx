@@ -173,7 +173,7 @@ export function CallRoom({
       <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col items-center justify-center gap-8 px-6 py-10 text-center relative z-10">
         <div className={connectionState === "connected" ? "float-up" : ""}>
           <div className={connectionState === "connected" ? "glow-connected" : ""}>
-            <Avatar name={other.displayName} size="lg" />
+            <Avatar name={other.displayName} src={other.avatarUrl} size="lg" />
           </div>
         </div>
 

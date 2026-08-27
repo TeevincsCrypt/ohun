@@ -14,3 +14,5 @@ export * from "./IncomingCallDialog";
 export * from "./CallRoom";
 export * from "./IncomingCallWatcher";
 export * from "./LiveCaptions";
+export * from "./UpcomingCalls";
+export * from "./ScheduleCallDialog";

@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { PROFILE_COLUMNS, toProfile, type ProfileRow } from "./profile";
 
 export class SupabaseConfigError extends Error {
   constructor() {
@@ -65,17 +66,11 @@ export async function getCurrentProfile() {
 
   const { data } = await supabase
     .from("profiles")
-    .select("id, username, display_name, preferred_language, last_seen_at")
+    .select(PROFILE_COLUMNS)
     .eq("id", user.id)
     .maybeSingle();
 
   if (!data) return null;
 
-  return {
-    id: data.id as string,
-    username: data.username as string,
-    displayName: data.display_name as string,
-    preferredLanguage: data.preferred_language as "en" | "fr" | "es",
-    lastSeenAt: data.last_seen_at as string,
-  };
+  return toProfile(data as ProfileRow);
 }

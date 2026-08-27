@@ -23,6 +23,8 @@ function LoginForm() {
   const [state, formAction] = useActionState(signIn, initialState);
   const searchParams = useSearchParams();
   const next = searchParams.get("next") ?? "/people";
+  // Set by the email-confirmation route when a link is expired or malformed.
+  const linkError = searchParams.get("error");
 
   return (
     <form action={formAction} className="mt-10 flex flex-col gap-6">
@@ -30,9 +32,9 @@ function LoginForm() {
       <AuthField id="email" label="Email" type="email" placeholder="you@example.com" required autoComplete="email" />
       <AuthField id="password" label="Password" type="password" required autoComplete="current-password" />
 
-      {state.error && (
+      {(state.error ?? linkError) && (
         <Pill tone="error" className="w-full justify-center text-center">
-          {state.error}
+          {state.error ?? linkError}
         </Pill>
       )}
 

@@ -161,3 +161,121 @@ do $$ begin
   alter publication supabase_realtime add table public.calls;
 exception when duplicate_object then null;
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- Phase 5: profile extras (avatar, phone) + scheduled calls.
+-- Safe to re-run; every statement is idempotent.
+-- ---------------------------------------------------------------------------
+
+alter table public.profiles
+  add column if not exists avatar_url text,
+  add column if not exists phone      text;
+
+-- E.164-ish: a leading + and 7-15 digits. Nullable, so an empty profile is
+-- still valid; the constraint only bites once a number is actually set.
+do $$ begin
+  alter table public.profiles
+    add constraint phone_format check (phone is null or phone ~ '^\+[1-9]\d{6,14}$');
+exception when duplicate_object then null;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- scheduled_calls
+-- ---------------------------------------------------------------------------
+do $$ begin
+  create type scheduled_call_status as enum ('pending', 'started', 'cancelled', 'missed');
+exception when duplicate_object then null;
+end $$;
+
+create table if not exists public.scheduled_calls (
+  id           uuid primary key default gen_random_uuid(),
+  organizer_id uuid not null references public.profiles(id) on delete cascade,
+  invitee_id   uuid not null references public.profiles(id) on delete cascade,
+  scheduled_at timestamptz not null,
+  note         text,
+  status       scheduled_call_status not null default 'pending',
+  -- Set once the scheduled call is actually placed, linking the two.
+  call_id      uuid references public.calls(id) on delete set null,
+  created_at   timestamptz not null default now(),
+
+  constraint no_self_schedule check (organizer_id <> invitee_id),
+  constraint note_length check (note is null or char_length(note) <= 280)
+);
+
+-- Drives "what's coming up" for both sides.
+create index if not exists scheduled_calls_organizer_idx
+  on public.scheduled_calls (organizer_id, scheduled_at);
+create index if not exists scheduled_calls_invitee_idx
+  on public.scheduled_calls (invitee_id, scheduled_at);
+
+alter table public.scheduled_calls enable row level security;
+
+-- You only ever see a scheduled call you are a party to.
+drop policy if exists "read own scheduled calls" on public.scheduled_calls;
+create policy "read own scheduled calls"
+  on public.scheduled_calls for select
+  to authenticated
+  using (auth.uid() = organizer_id or auth.uid() = invitee_id);
+
+-- You may only schedule as yourself.
+drop policy if exists "create scheduled call as organizer" on public.scheduled_calls;
+create policy "create scheduled call as organizer"
+  on public.scheduled_calls for insert
+  to authenticated
+  with check (auth.uid() = organizer_id);
+
+-- Either party may cancel; the organizer may reschedule.
+drop policy if exists "update own scheduled calls" on public.scheduled_calls;
+create policy "update own scheduled calls"
+  on public.scheduled_calls for update
+  to authenticated
+  using (auth.uid() = organizer_id or auth.uid() = invitee_id)
+  with check (auth.uid() = organizer_id or auth.uid() = invitee_id);
+
+drop policy if exists "delete own scheduled calls" on public.scheduled_calls;
+create policy "delete own scheduled calls"
+  on public.scheduled_calls for delete
+  to authenticated
+  using (auth.uid() = organizer_id);
+
+-- Realtime so an invitee sees a new invitation without reloading.
+do $$ begin
+  alter publication supabase_realtime add table public.scheduled_calls;
+exception when duplicate_object then null;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Avatar storage.
+--
+-- Public bucket: avatars are shown next to usernames in search results, so
+-- they are already public information. Writes are still restricted to the
+-- owner by the policies below, keyed on the first path segment being the
+-- user's own id (i.e. avatars/<uid>/<file>).
+-- ---------------------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('avatars', 'avatars', true)
+on conflict (id) do nothing;
+
+drop policy if exists "avatars are publicly readable" on storage.objects;
+create policy "avatars are publicly readable"
+  on storage.objects for select
+  to anon, authenticated
+  using (bucket_id = 'avatars');
+
+drop policy if exists "users upload own avatar" on storage.objects;
+create policy "users upload own avatar"
+  on storage.objects for insert
+  to authenticated
+  with check (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "users update own avatar" on storage.objects;
+create policy "users update own avatar"
+  on storage.objects for update
+  to authenticated
+  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "users delete own avatar" on storage.objects;
+create policy "users delete own avatar"
+  on storage.objects for delete
+  to authenticated
+  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
