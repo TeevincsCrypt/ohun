@@ -1,14 +1,12 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState, useTransition } from "react";
+import { useActionState, useRef, useState, useTransition } from "react";
 import { useFormStatus } from "react-dom";
 import { updateAvatar, updateProfile, removeAvatar, type ProfileFormState } from "@/lib/profile/actions";
-import { getBillingStatus } from "@/lib/billing/actions";
 import { Avatar } from "@/components/ohun/UserResult";
-import { UpgradeDialog } from "@/components/ohun/UpgradeDialog";
 import { RoomLinkCard } from "@/components/ohun/RoomLinkCard";
 import { Button, Card, Pill } from "@/components/ui";
-import { AVATAR_MAX_BYTES, CALL_LANGUAGES, LANGUAGE_FLAG, type BillingStatus, type Profile } from "@/types";
+import { AVATAR_MAX_BYTES, CALL_LANGUAGES, LANGUAGE_FLAG, type Profile } from "@/types";
 
 const initialState: ProfileFormState = { error: null };
 
@@ -181,70 +179,10 @@ function DetailsSection({ profile }: { profile: Profile }) {
   );
 }
 
-function PlanSection() {
-  const [billing, setBilling] = useState<BillingStatus | null>(null);
-  const [showUpgrade, setShowUpgrade] = useState(false);
-
-  useEffect(() => {
-    void getBillingStatus().then(setBilling);
-  }, [showUpgrade]);
-
-  if (!billing) return null;
-
-  const isFree = billing.status === "free";
-
-  return (
-    <Card className="flex flex-col gap-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-wide text-[var(--muted)]">Plan</p>
-          <p className="mt-2 text-xl font-bold tracking-tight">
-            {isFree ? "Free" : "Subscribed"}
-          </p>
-        </div>
-        <Pill tone={isFree ? "neutral" : "live"}>{isFree ? "Free plan" : "Active"}</Pill>
-      </div>
-
-      {isFree && billing.enforced && (
-        <>
-          <p className="text-sm text-[var(--muted)]">
-            {billing.freeCallsRemaining} of {billing.freeCallsLimit} calls left this month.
-          </p>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--surface)]">
-            <div
-              className="h-full rounded-full bg-[var(--accent)] transition-all"
-              style={{
-                width: `${(billing.freeCallsUsed / billing.freeCallsLimit) * 100}%`,
-              }}
-            />
-          </div>
-          <Button size="md" className="self-start" onClick={() => setShowUpgrade(true)}>
-            Subscribe
-          </Button>
-        </>
-      )}
-
-      {isFree && !billing.enforced && (
-        <p className="text-sm text-[var(--muted)]">
-          Unlimited calls while OHUN is in preview. You&apos;ve made{" "}
-          {billing.freeCallsUsed} {billing.freeCallsUsed === 1 ? "call" : "calls"} so far.
-        </p>
-      )}
-
-      {!isFree && (
-        <p className="text-sm text-[var(--muted)]">Unlimited calls — thanks for subscribing.</p>
-      )}
-
-      {showUpgrade && <UpgradeDialog onClose={() => setShowUpgrade(false)} />}
-    </Card>
-  );
-}
-
 export function ProfileClient({ profile, origin }: { profile: Profile; origin: string }) {
   return (
     <div className="flex flex-col gap-6">
       <RoomLinkCard slug={profile.roomSlug} origin={origin} />
-      <PlanSection />
       <AvatarSection profile={profile} />
       <DetailsSection profile={profile} />
     </div>

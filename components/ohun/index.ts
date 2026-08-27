@@ -17,8 +17,6 @@ export * from "./LiveCaptions";
 export * from "./UpcomingCalls";
 export * from "./ScheduleCallDialog";
 export * from "./RecentActivity";
-export * from "./UpgradeDialog";
-export * from "./TiunProvider";
 export * from "./RoomLinkCard";
 export * from "./FeatureStrip";
 export * from "./CallPreview";

@@ -9,7 +9,6 @@ import { listScheduledCalls } from "@/lib/schedule/actions";
 import { UserResult } from "@/components/ohun/UserResult";
 import { UpcomingCalls } from "@/components/ohun/UpcomingCalls";
 import { ScheduleCallDialog } from "@/components/ohun/ScheduleCallDialog";
-import { UpgradeDialog } from "@/components/ohun/UpgradeDialog";
 import { RecentActivity } from "@/components/ohun/RecentActivity";
 import { Pill } from "@/components/ui";
 import { PROFILE_COLUMNS, toProfile, type ProfileRow } from "@/lib/supabase/profile";
@@ -30,7 +29,6 @@ export function PeopleClient({ self }: { self: Profile }) {
   const [callingId, setCallingId] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState<Profile | null>(null);
   const [scheduled, setScheduled] = useState<ScheduledCall[]>([]);
-  const [showUpgrade, setShowUpgrade] = useState(false);
   const [startingRoom, setStartingRoom] = useState(false);
   const requestRef = useRef(0);
 
@@ -97,14 +95,10 @@ export function PeopleClient({ self }: { self: Profile }) {
       setCallingId(profile.id);
       setError(null);
 
-      const { callId, error: callError, code } = await startCall(profile.id);
+      const { callId, error: callError } = await startCall(profile.id);
 
       if (callError || !callId) {
         setCallingId(null);
-        if (code === "free_tier_exhausted") {
-          setShowUpgrade(true);
-          return null;
-        }
         const message = callError ?? "Could not start the call.";
         setError(message);
         return message;
@@ -131,8 +125,6 @@ export function PeopleClient({ self }: { self: Profile }) {
 
   return (
     <>
-      {showUpgrade && <UpgradeDialog onClose={() => setShowUpgrade(false)} />}
-
       {scheduling && (
         <ScheduleCallDialog
           invitee={scheduling}

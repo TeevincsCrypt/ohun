@@ -281,7 +281,17 @@ create policy "users delete own avatar"
   using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
 
 -- ---------------------------------------------------------------------------
--- Phase 6: billing (free tier + tiun subscription). Safe to re-run.
+-- Phase 6: billing columns. Retained but no longer used by the app.
+--
+-- OHUN is free: there is no plan, no quota and no checkout. These columns
+-- are left in place rather than dropped because dropping is destructive and
+-- irreversible, and an unused column costs nothing. Nothing reads or writes
+-- them, so they simply sit at their defaults.
+--
+-- The column privilege block further down still names them, which is why
+-- they are defined here at all: revoking table-wide UPDATE and granting
+-- back an explicit list is what protects every column not on that list, and
+-- that mechanism is still doing real work for room_slug and is_guest.
 -- ---------------------------------------------------------------------------
 
 alter table public.profiles

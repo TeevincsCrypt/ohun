@@ -24,7 +24,7 @@ export class AdminNotConfiguredError extends Error {
  *
  * For callers where the service-role key is genuinely optional — anything
  * that should degrade rather than fail. Placing a call must never depend
- * on a key that only notification email and billing need.
+ * on a key that only notification email needs.
  */
 export function tryCreateAdminClient() {
   try {
