@@ -203,10 +203,17 @@ export type StartCallErrorCode = "free_tier_exhausted";
 /** How a finished call turned out, from the signed-in user's point of view. */
 export type CallOutcome = "completed" | "missed" | "declined" | "cancelled" | "failed";
 
-export interface CallHistoryEntry {
+/** A person as they appear in call history. */
+export type HistoryPerson = Pick<
+  Profile,
+  "id" | "username" | "displayName" | "preferredLanguage" | "avatarUrl"
+>;
+
+export interface DirectCallEntry {
+  kind: "direct";
   id: string;
   /** The other party. */
-  counterpart: Pick<Profile, "id" | "username" | "displayName" | "preferredLanguage" | "avatarUrl">;
+  counterpart: HistoryPerson;
   /** True when the signed-in user placed this call. */
   outgoing: boolean;
   outcome: CallOutcome;
@@ -218,6 +225,28 @@ export interface CallHistoryEntry {
   fromLanguage: CallLanguageCode;
   toLanguage: CallLanguageCode;
 }
+
+export interface GroupCallEntry {
+  kind: "group";
+  id: string;
+  /** Everyone who was in it, the signed-in user excluded. */
+  others: HistoryPerson[];
+  /** True when the signed-in user opened the room. */
+  hostedBySelf: boolean;
+  outcome: CallOutcome;
+  at: string;
+  durationSeconds: number | null;
+  /** Every distinct language the room was translating between. */
+  languages: CallLanguageCode[];
+}
+
+/**
+ * One row of call history. A discriminated union rather than a widened
+ * single shape: a direct call has one counterpart and a language pair, a
+ * group call has a roster and a set of languages, and nothing useful is
+ * shared beyond the timestamps.
+ */
+export type CallHistoryEntry = DirectCallEntry | GroupCallEntry;
 
 /**
  * Maps a stored call row onto what it meant for one participant.
