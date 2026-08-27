@@ -15,16 +15,23 @@ const STREAMING_SAMPLE_RATE = 16_000;
 const CONNECT_TIMEOUT_MS = 15_000;
 
 /**
- * AssemblyAI ships separate streaming models: an English-only one (fastest)
- * and a multilingual one covering English, Spanish, German, French,
- * Portuguese and Italian. Picking per-language is what makes French and
- * Spanish transcribe properly instead of being forced through the
- * English-tuned model.
+ * Picks the streaming model.
+ *
+ * Universal-3.5 Pro is the only one that accepts `languageCodes`, which is
+ * what lets a session be steered toward the specific languages present in
+ * the call and follow a speaker code-switching between them. It is used
+ * whenever more than one language is in play.
+ *
+ * A single-language session stays on the older pair — the English-only
+ * model is the fastest thing available, and there is nothing to detect or
+ * switch between when everyone speaks the same language.
  */
-function speechModelFor(language: LanguageCode): StreamingSpeechModel {
-  return language === "en"
-    ? "universal-streaming-english"
-    : "universal-streaming-multilingual";
+function speechModelFor(
+  language: LanguageCode,
+  languages: LanguageCode[],
+): StreamingSpeechModel {
+  if (languages.length > 1) return "universal-3-5-pro";
+  return language === "en" ? "universal-streaming-english" : "universal-streaming-multilingual";
 }
 
 export async function createTranscriptionStream(
@@ -32,11 +39,19 @@ export async function createTranscriptionStream(
 ): Promise<TranscriptionStream> {
   const token = await fetchStreamingToken();
 
+  // Deduplicated, and always including the speaker's own language even if
+  // the caller forgot it.
+  const languages = [...new Set([config.language, ...(config.languages ?? [])])];
+  const multilingual = languages.length > 1;
+
   const transcriber = new StreamingTranscriber({
     token,
     sampleRate: STREAMING_SAMPLE_RATE,
     formatTurns: true,
-    speechModel: speechModelFor(config.language),
+    speechModel: speechModelFor(config.language, languages),
+    // Only meaningful on Universal-3.5 Pro, and only worth asking for when
+    // there is genuinely more than one language it could be.
+    ...(multilingual ? { languageCodes: languages, languageDetection: true } : {}),
     // The SDK defaults to a 1000ms handshake budget, which is sized for a
     // server sitting close to AssemblyAI. From a browser that budget has to
     // cover DNS + TCP + TLS + the HTTP upgrade + the server's `Begin` frame,
@@ -48,10 +63,18 @@ export async function createTranscriptionStream(
   });
 
   transcriber.on("turn", (event: TurnEvent) => {
+    // The model reports what it actually heard. Only trust it when it names
+    // a language this conversation contains: a stray detection outside the
+    // room would send the translator a source nobody is speaking.
+    const detected = event.language_code as LanguageCode | undefined;
+    const usable = detected && languages.includes(detected) ? detected : undefined;
+
     config.onTranscript({
       turnOrder: event.turn_order,
       text: event.transcript,
       isFinal: event.end_of_turn,
+      detectedLanguage: usable,
+      languageConfidence: event.language_confidence,
     });
   });
 

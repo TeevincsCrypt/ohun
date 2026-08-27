@@ -41,8 +41,10 @@ export interface TranslationPayload {
 }
 
 interface SessionOptions {
-  /** The language this participant speaks. */
+  /** The language this participant is expected to speak. */
   language: LanguageCode;
+  /** Every language in the conversation, for detection and code-switching. */
+  languages?: LanguageCode[];
   /** The language their speech is translated into. */
   targetLanguage: LanguageCode;
   /**
@@ -61,8 +63,12 @@ interface SessionOptions {
    * cannot express — so the caller does that part itself.
    */
   translateManually?: boolean;
-  /** Receives each completed utterance when translateManually is set. */
-  onUtterance?: (text: string) => void | Promise<void>;
+  /**
+   * Receives each completed utterance when translateManually is set, along
+   * with the language it was actually spoken in — which is not always the
+   * one the speaker's profile claims.
+   */
+  onUtterance?: (text: string, spokenLanguage: LanguageCode) => void | Promise<void>;
   /**
    * A microphone stream the caller already holds, shared rather than
    * captured again. See MicRecorderConfig.stream — a call passes the one
@@ -78,6 +84,7 @@ interface SessionOptions {
  */
 export function useTranscriptionSession({
   language,
+  languages,
   targetLanguage,
   speakLocally = true,
   translateManually = false,
@@ -195,12 +202,12 @@ export function useTranscriptionSession({
    * indicator behaves the same in either mode.
    */
   const delegateUtterance = useCallback(
-    async (text: string, isCurrent: () => boolean) => {
+    async (text: string, spokenLanguage: LanguageCode, isCurrent: () => boolean) => {
       if (isCurrent()) {
         setState((current) => ({ ...current, isTranslating: true, translationError: null }));
       }
       try {
-        await onUtteranceRef.current?.(text);
+        await onUtteranceRef.current?.(text, spokenLanguage);
       } catch (error) {
         console.error("[ohun] utterance handler failed", error);
         if (!isCurrent()) return;
@@ -219,12 +226,12 @@ export function useTranscriptionSession({
 
   /** Translate one finished utterance, then speak it in the listener's language. */
   const translateAndSpeak = useCallback(
-    async (text: string, isCurrent: () => boolean) => {
+    async (text: string, spokenLanguage: LanguageCode, isCurrent: () => boolean) => {
       translationAbortRef.current?.abort();
       const controller = new AbortController();
       translationAbortRef.current = controller;
 
-      console.info("[ohun] translating", { from: language, to: targetLanguage, text });
+      console.info("[ohun] translating", { from: spokenLanguage, to: targetLanguage, text });
 
       if (isCurrent()) {
         setState((current) => ({ ...current, isTranslating: true, translationError: null }));
@@ -232,7 +239,7 @@ export function useTranscriptionSession({
 
       try {
         const { translatedText } = await translateText(
-          { text, from: language, to: targetLanguage },
+          { text, from: spokenLanguage, to: targetLanguage },
           { signal: controller.signal },
         );
 
@@ -263,7 +270,7 @@ export function useTranscriptionSession({
         }));
       }
     },
-    [language, targetLanguage, speakLocally],
+    [targetLanguage, speakLocally],
   );
 
   /** Re-speak the most recent translation. */
@@ -293,6 +300,7 @@ export function useTranscriptionSession({
     try {
       const stream = await createTranscriptionStream({
         language,
+        languages,
         onOpen: () => {
           if (!isCurrent()) return;
           setState((current) => ({
@@ -301,7 +309,7 @@ export function useTranscriptionSession({
             micState: "listening",
           }));
         },
-        onTranscript: ({ turnOrder, text, isFinal }) => {
+        onTranscript: ({ turnOrder, text, isFinal, detectedLanguage }) => {
           // Whether `isFinal` (AssemblyAI's end_of_turn) ever becomes true is
           // the difference between "translation never fires" and "translation
           // fired and failed" — log it so the console distinguishes them.
@@ -324,10 +332,12 @@ export function useTranscriptionSession({
           // and produce translations of half-finished sentences.
           if (isFinal && text.trim() && !translatedTurnsRef.current.has(turnOrder)) {
             translatedTurnsRef.current.add(turnOrder);
+            // What was heard beats what the profile claims.
+            const spoken = detectedLanguage ?? language;
             if (translateManually) {
-              void delegateUtterance(text, isCurrent);
+              void delegateUtterance(text, spoken, isCurrent);
             } else {
-              void translateAndSpeak(text, isCurrent);
+              void translateAndSpeak(text, spoken, isCurrent);
             }
           }
         },
@@ -383,6 +393,7 @@ export function useTranscriptionSession({
     composeTranscript,
     delegateUtterance,
     language,
+    languages,
     resetTranscriptState,
     teardown,
     translateAndSpeak,

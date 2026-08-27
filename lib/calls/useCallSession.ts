@@ -151,6 +151,9 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
     // toggleMicrophone.
     stream: localStream,
     language: myLanguage,
+    // Both sides' languages, so the model can follow either and report
+    // which was actually spoken.
+    languages: [myLanguage, theirLanguage],
     targetLanguage: theirLanguage,
     speakLocally: false,
     onTranslation: ({ originalText, translatedText }) => {

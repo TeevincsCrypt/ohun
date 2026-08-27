@@ -14,11 +14,29 @@ export interface TranscriptUpdate {
   text: string;
   /** True once AssemblyAI has detected the end of this turn. */
   isFinal: boolean;
+  /**
+   * The language actually spoken in this turn, when the model reported one.
+   *
+   * A participant's profile language is a guess about what they will speak,
+   * not a fact about what they just said. Someone whose profile says English
+   * may answer a French question in French. Translating that from English
+   * produces nonsense, so where the model tells us, this wins.
+   */
+  detectedLanguage?: LanguageCode;
+  /** 0-1 confidence in detectedLanguage, when reported. */
+  languageConfidence?: number;
 }
 
 export interface TranscriptionStreamConfig {
-  /** The language this participant speaks; selects the streaming speech model. */
+  /** The language this participant is expected to speak. */
   language: LanguageCode;
+  /**
+   * Every language in the conversation. Passed to the model so it can
+   * follow a speaker switching between them mid-sentence, and so detection
+   * is choosing between languages that are actually present rather than the
+   * whole world.
+   */
+  languages?: LanguageCode[];
   /** Fired once the server has accepted the session and is ready for audio. */
   onOpen?: (info: { sessionId: string }) => void;
   onTranscript: (update: TranscriptUpdate) => void;

@@ -105,6 +105,7 @@ export function RoomCall({ room: initialRoom, self }: { room: Room; self: Profil
     hasTurn,
     captions,
     connectedPeers,
+    languagesInRoom,
     localStream,
     myLanguage,
     liveTranscript,
@@ -128,11 +129,6 @@ export function RoomCall({ room: initialRoom, self }: { room: Room; self: Profil
       return () => clearTimeout(timer);
     }
   }, [room.status, router]);
-
-  const languagesInRoom = useMemo(
-    () => [...new Set(seated.map((participant) => participant.language))],
-    [seated],
-  );
 
   return (
     <div className="theme-dark relative flex min-h-0 flex-1 flex-col overflow-x-clip bg-[var(--background)] text-[var(--foreground)] lg:h-[100dvh] lg:flex-none lg:overflow-hidden">

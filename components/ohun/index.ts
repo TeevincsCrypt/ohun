@@ -1,4 +1,5 @@
 export * from "./Logo";
+export * from "./LogoMark";
 export * from "./HandsBridge";
 export * from "./LandingNav";
 export * from "./LanguageBadgeRow";
