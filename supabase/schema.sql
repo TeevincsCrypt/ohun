@@ -279,3 +279,36 @@ create policy "users delete own avatar"
   on storage.objects for delete
   to authenticated
   using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- ---------------------------------------------------------------------------
+-- Phase 6: billing (free tier + tiun subscription). Safe to re-run.
+-- ---------------------------------------------------------------------------
+
+alter table public.profiles
+  add column if not exists subscription_status      text not null default 'free',
+  add column if not exists subscription_product_id  text,
+  add column if not exists free_calls_used           integer not null default 0,
+  add column if not exists free_period_started_at    timestamptz not null default now();
+
+do $$ begin
+  alter table public.profiles
+    add constraint subscription_status_values check (subscription_status in ('free', 'active'));
+exception when duplicate_object then null;
+end $$;
+
+-- Column-level privilege, layered UNDER row level security rather than
+-- replacing it. The "update own profile" RLS policy above lets a user
+-- update their own row at all, which is correct for display_name/phone/
+-- preferred_language/avatar_url — but without this, the same policy would
+-- let anyone open devtools and run
+--   supabase.from('profiles').update({ subscription_status: 'active' })
+-- to grant themselves a paid plan for free. These four columns are only
+-- ever written by server code using the service-role client (see
+-- lib/supabase/admin.ts), which bypasses RLS and grants entirely, so the
+-- revoke below is what actually protects them.
+revoke update (
+  subscription_status,
+  subscription_product_id,
+  free_calls_used,
+  free_period_started_at
+) on public.profiles from authenticated, anon;

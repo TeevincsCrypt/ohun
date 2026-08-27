@@ -163,3 +163,19 @@ export function isMissed(scheduled: Pick<ScheduledCall, "scheduledAt" | "status"
   if (scheduled.status !== "pending") return false;
   return new Date(scheduled.scheduledAt).getTime() < Date.now() - JOIN_WINDOW_AFTER_MS;
 }
+
+export type SubscriptionStatus = "free" | "active";
+
+/** Free calls allowed per rolling 30-day period before checkout is required. */
+export const FREE_CALLS_PER_PERIOD = 5;
+
+export interface BillingStatus {
+  status: SubscriptionStatus;
+  freeCallsUsed: number;
+  freeCallsLimit: number;
+  /** Never negative; 0 means the next call requires a subscription. */
+  freeCallsRemaining: number;
+}
+
+/** Machine-readable reason code, alongside the free-text error, so the UI can tell "quota" apart from any other failure. */
+export type StartCallErrorCode = "free_tier_exhausted";
