@@ -14,6 +14,12 @@
   --muted: rgba(11, 11, 12, 0.58);
   --border: rgba(11, 11, 12, 0.12);
   --surface: rgba(11, 11, 12, 0.04);
+  /* Single accent, used for "live" states: connected calls, active plans,
+     the speaking indicator. Kept as a token so the emerald can be changed
+     in one place rather than across every component that signals liveness. */
+  --accent: #059669;
+  --accent-soft: rgba(5, 150, 105, 0.12);
+  --accent-border: rgba(5, 150, 105, 0.3);
 }
 
 .theme-dark {
@@ -22,6 +28,10 @@
   --muted: rgba(246, 245, 243, 0.6);
   --border: rgba(246, 245, 243, 0.14);
   --surface: rgba(246, 245, 243, 0.05);
+  /* Brighter on dark so it holds up against the near-black background. */
+  --accent: #10b981;
+  --accent-soft: rgba(16, 185, 129, 0.12);
+  --accent-border: rgba(16, 185, 129, 0.32);
 }
 
 @theme inline {
@@ -30,6 +40,7 @@
   --color-muted: var(--muted);
   --color-border: var(--border);
   --color-surface: var(--surface);
+  --color-accent: var(--accent);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

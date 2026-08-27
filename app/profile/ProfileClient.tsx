@@ -204,14 +204,14 @@ function PlanSection() {
         <Pill tone={isFree ? "neutral" : "live"}>{isFree ? "Free plan" : "Active"}</Pill>
       </div>
 
-      {isFree && (
+      {isFree && billing.enforced && (
         <>
           <p className="text-sm text-[var(--muted)]">
             {billing.freeCallsRemaining} of {billing.freeCallsLimit} calls left this month.
           </p>
           <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--surface)]">
             <div
-              className="h-full rounded-full bg-emerald-500 transition-all"
+              className="h-full rounded-full bg-[var(--accent)] transition-all"
               style={{
                 width: `${(billing.freeCallsUsed / billing.freeCallsLimit) * 100}%`,
               }}
@@ -221,6 +221,13 @@ function PlanSection() {
             Subscribe
           </Button>
         </>
+      )}
+
+      {isFree && !billing.enforced && (
+        <p className="text-sm text-[var(--muted)]">
+          Unlimited calls while OHUN is in preview. You&apos;ve made{" "}
+          {billing.freeCallsUsed} {billing.freeCallsUsed === 1 ? "call" : "calls"} so far.
+        </p>
       )}
 
       {!isFree && (

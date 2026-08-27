@@ -175,7 +175,53 @@ export interface BillingStatus {
   freeCallsLimit: number;
   /** Never negative; 0 means the next call requires a subscription. */
   freeCallsRemaining: number;
+  /**
+   * False when no payment provider is configured on this deployment, in
+   * which case the limit is tracked but never actually blocks a call.
+   */
+  enforced: boolean;
 }
 
 /** Machine-readable reason code, alongside the free-text error, so the UI can tell "quota" apart from any other failure. */
 export type StartCallErrorCode = "free_tier_exhausted";
+
+/** How a finished call turned out, from the signed-in user's point of view. */
+export type CallOutcome = "completed" | "missed" | "declined" | "cancelled" | "failed";
+
+export interface CallHistoryEntry {
+  id: string;
+  /** The other party. */
+  counterpart: Pick<Profile, "id" | "username" | "displayName" | "preferredLanguage" | "avatarUrl">;
+  /** True when the signed-in user placed this call. */
+  outgoing: boolean;
+  outcome: CallOutcome;
+  /** When the call was placed. */
+  at: string;
+  /** Talk time in seconds; null when the call never connected. */
+  durationSeconds: number | null;
+  /** The language pair the call ran with, as snapshotted on the row. */
+  fromLanguage: CallLanguageCode;
+  toLanguage: CallLanguageCode;
+}
+
+/**
+ * Maps a stored call row onto what it meant for one participant.
+ *
+ * "Missed" and "cancelled" are the same stored status (`ended` with no
+ * connection) seen from opposite sides: the person who was rung missed it,
+ * the person who rang gave up.
+ */
+export function callOutcome({
+  status,
+  connected,
+  outgoing,
+}: {
+  status: CallStatus;
+  connected: boolean;
+  outgoing: boolean;
+}): CallOutcome {
+  if (status === "failed") return "failed";
+  if (status === "declined") return "declined";
+  if (connected) return "completed";
+  return outgoing ? "cancelled" : "missed";
+}

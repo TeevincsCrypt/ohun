@@ -312,3 +312,20 @@ revoke update (
   free_calls_used,
   free_period_started_at
 ) on public.profiles from authenticated, anon;
+
+-- ---------------------------------------------------------------------------
+-- Phase 7: recent activity.
+--
+-- ended_at alone cannot give a call's real length, because created_at is
+-- when the phone started ringing, not when the two sides connected. Stamp
+-- the connection separately so history can show talk time rather than
+-- ring-plus-talk time.
+-- ---------------------------------------------------------------------------
+alter table public.calls
+  add column if not exists connected_at timestamptz;
+
+-- Backs the history query: a user's calls, newest first.
+create index if not exists calls_caller_created_idx
+  on public.calls (caller_id, created_at desc);
+create index if not exists calls_receiver_created_idx
+  on public.calls (receiver_id, created_at desc);

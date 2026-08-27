@@ -64,7 +64,21 @@ export async function getBillingStatus(): Promise<BillingStatus | null> {
     freeCallsUsed: row.free_calls_used,
     freeCallsLimit: FREE_CALLS_PER_PERIOD,
     freeCallsRemaining: Math.max(0, FREE_CALLS_PER_PERIOD - row.free_calls_used),
+    enforced: isBillingEnabled(),
   };
+}
+
+/**
+ * Whether a payment provider is actually wired up on this deployment.
+ *
+ * When it is not, metering is pointless and actively harmful: there would
+ * be no way for anyone who hits the cap to lift it, so the app would just
+ * stop working with a dead "Subscribe" button. The counter keeps
+ * incrementing either way — only the refusal is conditional — so turning
+ * billing on later does not hand everyone a fresh allowance.
+ */
+function isBillingEnabled(): boolean {
+  return Boolean(process.env.NEXT_PUBLIC_TIUN_SNIPPET_ID && process.env.NEXT_PUBLIC_TIUN_PRODUCT_ID);
 }
 
 /**
@@ -81,7 +95,7 @@ export async function consumeFreeCallOrReject(userId: string): Promise<boolean> 
   const row = await loadBilling(userId);
 
   if (row.subscription_status === "active") return true;
-  if (row.free_calls_used >= FREE_CALLS_PER_PERIOD) return false;
+  if (row.free_calls_used >= FREE_CALLS_PER_PERIOD && isBillingEnabled()) return false;
 
   await admin
     .from("profiles")

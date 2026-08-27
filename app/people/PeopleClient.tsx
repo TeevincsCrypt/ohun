@@ -9,6 +9,7 @@ import { UserResult } from "@/components/ohun/UserResult";
 import { UpcomingCalls } from "@/components/ohun/UpcomingCalls";
 import { ScheduleCallDialog } from "@/components/ohun/ScheduleCallDialog";
 import { UpgradeDialog } from "@/components/ohun/UpgradeDialog";
+import { RecentActivity } from "@/components/ohun/RecentActivity";
 import { Pill } from "@/components/ui";
 import { PROFILE_COLUMNS, toProfile, type ProfileRow } from "@/lib/supabase/profile";
 import type { Profile, ScheduledCall } from "@/types";
@@ -80,7 +81,7 @@ export function PeopleClient({ self }: { self: Profile }) {
   }, [term, self.id]);
 
   const handleCall = useCallback(
-    async (profile: Profile) => {
+    async (profile: Pick<Profile, "id" | "displayName">) => {
       setCallingId(profile.id);
       setError(null);
       const { callId, error: callError, code } = await startCall(profile.id);
@@ -100,8 +101,6 @@ export function PeopleClient({ self }: { self: Profile }) {
 
   return (
     <>
-      <UpcomingCalls scheduled={scheduled} onChanged={refreshScheduled} />
-
       {showUpgrade && <UpgradeDialog onClose={() => setShowUpgrade(false)} />}
 
       {scheduling && (
@@ -120,15 +119,31 @@ export function PeopleClient({ self }: { self: Profile }) {
           <label htmlFor="search" className="text-sm font-medium text-[var(--muted)]">
             Find someone
           </label>
-          <input
-            id="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="@marie or Marie Dupont"
-            autoComplete="off"
-            spellCheck={false}
-            className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 text-base text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted)] focus-visible:border-[var(--foreground)]"
-          />
+          <div className="relative">
+            <svg
+              aria-hidden
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+            <input
+              id="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="@marie or Marie Dupont"
+              autoComplete="off"
+              spellCheck={false}
+              className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] pl-11 pr-4 text-base text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted)] focus-visible:border-[var(--accent)]"
+            />
+          </div>
         </div>
 
         {error && (
@@ -155,12 +170,19 @@ export function PeopleClient({ self }: { self: Profile }) {
           </p>
         )}
 
-        {term.length < 2 && (
-          <p className="text-center text-sm text-[var(--muted)]">
-            Search by username or name to start a call.
-          </p>
+        {term.length >= 2 && searching && (
+          <p className="text-center text-sm text-[var(--muted)]">Searching…</p>
         )}
       </div>
+
+      {/* Only reference material below this point, so it sits under the
+          search box rather than pushing it down the page. */}
+      {term.length < 2 && (
+        <div className="mt-10">
+          <UpcomingCalls scheduled={scheduled} onChanged={refreshScheduled} />
+          <RecentActivity onCall={handleCall} />
+        </div>
+      )}
     </>
   );
 }

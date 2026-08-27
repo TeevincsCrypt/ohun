@@ -94,7 +94,7 @@ export async function setCallStatus(
 
   const { data: call, error: readError } = await supabase
     .from("calls")
-    .select("id, caller_id, receiver_id, status")
+    .select("id, caller_id, receiver_id, status, connected_at")
     .eq("id", callId)
     .maybeSingle();
 
@@ -111,6 +111,13 @@ export async function setCallStatus(
   const patch: Record<string, unknown> = { status };
   if (status === "declined" || status === "ended" || status === "failed") {
     patch.ended_at = new Date().toISOString();
+  }
+  // Both peers report "connected", so only stamp it if it is not already
+  // set. Two simultaneous reports can both see null and both write, but
+  // the two timestamps are milliseconds apart and either is a truthful
+  // answer to "when did this connect" — not worth a transaction.
+  if (status === "connected" && !call.connected_at) {
+    patch.connected_at = new Date().toISOString();
   }
 
   const { error } = await supabase.from("calls").update(patch).eq("id", callId);
