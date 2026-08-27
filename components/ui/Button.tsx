@@ -5,7 +5,7 @@ type Variant = "solid" | "outline" | "ghost";
 type Size = "md" | "lg";
 
 const base =
-  "inline-flex items-center justify-center gap-2 rounded-full font-medium tracking-tight transition-colors duration-150 disabled:opacity-40 disabled:pointer-events-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--foreground)]";
+  "inline-flex items-center justify-center gap-2 rounded-full font-medium tracking-tight transition-all duration-150 active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--foreground)]";
 
 const sizes: Record<Size, string> = {
   md: "h-11 px-5 text-sm",
@@ -13,9 +13,13 @@ const sizes: Record<Size, string> = {
 };
 
 const variants: Record<Variant, string> = {
-  solid: "bg-[var(--foreground)] text-[var(--background)] hover:opacity-85",
-  outline: "border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--surface)]",
-  ghost: "text-[var(--foreground)]/70 hover:text-[var(--foreground)]",
+  // Dark text on the accent: the lime is bright enough that white on it
+  // fails contrast, so the foreground inverts rather than the background.
+  solid:
+    "bg-[var(--accent)] text-[#0a1400] shadow-[0_6px_24px_-8px_var(--accent-glow)] hover:bg-[var(--accent-strong)]",
+  outline:
+    "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-raised)] hover:border-[var(--accent-border)]",
+  ghost: "text-[var(--muted)] hover:text-[var(--foreground)]",
 };
 
 interface CommonProps {

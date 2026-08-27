@@ -83,7 +83,7 @@ export function ScheduleCallDialog({
               value={when}
               min={toLocalInputValue(new Date())}
               onChange={(event) => setWhen(event.target.value)}
-              className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 text-base text-[var(--foreground)] outline-none transition-colors focus-visible:border-[var(--foreground)]"
+              className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 text-base text-[var(--foreground)] outline-none transition-colors focus-visible:border-[var(--accent)]"
             />
             <p className="text-xs text-[var(--muted)]">
               Shown in your timezone. They&apos;ll see it in theirs.
@@ -101,7 +101,7 @@ export function ScheduleCallDialog({
               rows={3}
               placeholder="What's this call about?"
               onChange={(event) => setNote(event.target.value)}
-              className="w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-base text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted)] focus-visible:border-[var(--foreground)]"
+              className="w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-base text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted)] focus-visible:border-[var(--accent)]"
             />
             <p className="text-right text-xs text-[var(--muted)]">
               {note.length}/{NOTE_LIMIT}

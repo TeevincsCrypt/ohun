@@ -228,13 +228,33 @@ export function IncomingCallDialog({ selfId }: { selfId: string }) {
           aria-label="Incoming Ohun call"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm"
         >
-          <Card className="w-full max-w-sm text-center">
-            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-              Incoming Ohun call
+          <Card className="animate-rise w-full max-w-sm text-center">
+            <p className="inline-flex items-center gap-2 rounded-full border border-[var(--accent-border)] bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-medium text-[var(--accent)]">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--accent)]" />
+              Incoming call
             </p>
 
             <div className="mt-6 flex flex-col items-center gap-4">
-              <Avatar name={incoming.caller.displayName} src={incoming.caller.avatarUrl} size="lg" />
+              {/* Expanding rings, so a ringing call reads as ringing even
+                  with the tab silent. */}
+              <span className="relative flex items-center justify-center">
+                <span
+                  aria-hidden
+                  className="animate-pulse-ring absolute h-24 w-24 rounded-full border border-[var(--accent-border)]"
+                />
+                <span
+                  aria-hidden
+                  className="animate-pulse-ring absolute h-24 w-24 rounded-full border border-[var(--accent-border)]"
+                  style={{ animationDelay: "1.1s" }}
+                />
+                <span className="relative">
+                  <Avatar
+                    name={incoming.caller.displayName}
+                    src={incoming.caller.avatarUrl}
+                    size="lg"
+                  />
+                </span>
+              </span>
               <div>
                 <p className="text-xl font-semibold tracking-tight">
                   {incoming.caller.displayName} wants to talk with you.
@@ -242,9 +262,16 @@ export function IncomingCallDialog({ selfId }: { selfId: string }) {
                 <p className="mt-1 text-sm text-[var(--muted)]">@{incoming.caller.username}</p>
               </div>
 
-              <p className="text-sm text-[var(--muted)]">
-                {LANGUAGE_FLAG[incoming.callerLanguage]} {callerLang?.label} ↔{" "}
-                {LANGUAGE_FLAG[incoming.receiverLanguage]} {receiverLang?.label}
+              <p className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm">
+                <span>
+                  {LANGUAGE_FLAG[incoming.callerLanguage]}{" "}
+                  <span className="text-[var(--peer)]">{callerLang?.label}</span>
+                </span>
+                <span className="text-[var(--muted)]">↔</span>
+                <span>
+                  {LANGUAGE_FLAG[incoming.receiverLanguage]}{" "}
+                  <span className="text-[var(--accent)]">{receiverLang?.label}</span>
+                </span>
               </p>
             </div>
 
