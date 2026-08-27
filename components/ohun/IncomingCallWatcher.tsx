@@ -49,5 +49,14 @@ export function IncomingCallWatcher() {
   if (!userId) return null;
   if (pathname?.startsWith("/call/")) return null;
 
-  return <IncomingCallDialog selfId={userId} />;
+  // `theme-dark` lives on each page's own wrapper div, but this renders as a
+  // sibling of {children} in <body> — outside it. Without re-declaring the
+  // theme here the call UI picks up the light palette and renders wrong on
+  // the dark app pages. Calls are app chrome, so they stay dark everywhere,
+  // including over the light marketing page.
+  return (
+    <div className="theme-dark">
+      <IncomingCallDialog selfId={userId} />
+    </div>
+  );
 }
