@@ -625,6 +625,26 @@ create policy "update your own participation" on public.room_participants
   for update to authenticated
   using (user_id = auth.uid());
 
+-- Re-inviting someone needs its own narrow permission.
+--
+-- A participant's row is kept when they leave or decline, so inviting them
+-- again is an UPDATE of a row belonging to someone else — which the policy
+-- above rightly refuses. Without this, asking back anyone who has already
+-- said no, or who dropped out and wants to return, simply fails.
+--
+-- Deliberately narrow: it only applies to rows that are already 'left' or
+-- 'declined', and the WITH CHECK allows setting them to nothing but
+-- 'invited'. It cannot be used to remove someone, to pull them into a call
+-- without their agreeing, or to change a seated participant's language.
+drop policy if exists "re-invite a departed participant" on public.room_participants;
+create policy "re-invite a departed participant" on public.room_participants
+  for update to authenticated
+  using (
+    public.is_room_participant(room_id, auth.uid())
+    and state in ('left', 'declined')
+  )
+  with check (state = 'invited');
+
 do $$ begin
   alter publication supabase_realtime add table public.rooms;
 exception when duplicate_object then null;
