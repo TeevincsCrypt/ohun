@@ -1,7 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { getUserEmails, AdminNotConfiguredError } from "@/lib/supabase/admin";
+import { sendEmail, isEmailConfigured } from "@/lib/email/client";
+import { scheduledCallEmail } from "@/lib/email/templates";
 import { startCall } from "@/lib/calls/actions";
 import type { ScheduledCall, ScheduledCallStatus } from "@/types";
 
@@ -12,6 +16,80 @@ export interface ScheduleResult {
 
 /** Furthest ahead a call may be booked. Keeps the list meaningful. */
 const MAX_LEAD_MS = 90 * 24 * 60 * 60 * 1000;
+
+/** Absolute origin for links in outbound mail. */
+async function siteOrigin(): Promise<string> {
+  const configured = process.env.NEXT_PUBLIC_SITE_URL;
+  if (configured) return configured.replace(/\/$/, "");
+
+  const headerList = await headers();
+  const host = headerList.get("x-forwarded-host") ?? headerList.get("host");
+  const protocol = headerList.get("x-forwarded-proto") ?? "https";
+  return host ? `${protocol}://${host}` : "http://localhost:3000";
+}
+
+interface NotifyInput {
+  organizerId: string;
+  inviteeId: string;
+  organizerName: string;
+  organizerUsername: string;
+  inviteeName: string;
+  inviteeUsername: string;
+  scheduledAt: string;
+  note: string | null;
+}
+
+/**
+ * Emails both parties that a call is on the books.
+ *
+ * Every failure here is swallowed and logged: the booking is already
+ * committed by the time this runs, and a mail provider outage must not
+ * surface as "could not schedule that call".
+ */
+async function notifyScheduled(input: NotifyInput): Promise<void> {
+  if (!isEmailConfigured()) return;
+
+  try {
+    const siteUrl = await siteOrigin();
+    const emails = await getUserEmails([input.organizerId, input.inviteeId]);
+
+    const recipients = [
+      {
+        email: emails.get(input.inviteeId),
+        recipientName: input.inviteeName,
+        counterpartName: input.organizerName,
+        counterpartUsername: input.organizerUsername,
+        isOrganizer: false,
+      },
+      {
+        email: emails.get(input.organizerId),
+        recipientName: input.organizerName,
+        counterpartName: input.inviteeName,
+        counterpartUsername: input.inviteeUsername,
+        isOrganizer: true,
+      },
+    ];
+
+    await Promise.all(
+      recipients.map(async ({ email, ...rest }) => {
+        if (!email) return;
+        const message = scheduledCallEmail({
+          ...rest,
+          scheduledAt: input.scheduledAt,
+          note: input.note,
+          siteUrl,
+        });
+        await sendEmail({ to: email, ...message });
+      }),
+    );
+  } catch (error) {
+    if (error instanceof AdminNotConfiguredError) {
+      console.warn("[ohun/schedule]", error.message);
+      return;
+    }
+    console.error("[ohun/schedule] could not send notification email", error);
+  }
+}
 
 /**
  * Books a call for later. The organizer is taken from the session, never
@@ -40,13 +118,16 @@ export async function scheduleCall(
   const trimmedNote = note.trim();
   if (trimmedNote.length > 280) return { error: "Keep the note under 280 characters." };
 
-  const { data: invitee } = await supabase
+  // Both parties in one round-trip — the names are needed for the email.
+  const { data: parties } = await supabase
     .from("profiles")
-    .select("id")
-    .eq("id", inviteeId)
-    .maybeSingle();
+    .select("id, username, display_name")
+    .in("id", [user.id, inviteeId]);
 
-  if (!invitee) return { error: "Could not find that person." };
+  const invitee = parties?.find((row) => row.id === inviteeId);
+  const organizer = parties?.find((row) => row.id === user.id);
+
+  if (!invitee || !organizer) return { error: "Could not find that person." };
 
   const { data, error } = await supabase
     .from("scheduled_calls")
@@ -60,6 +141,21 @@ export async function scheduleCall(
     .single();
 
   if (error || !data) return { error: "Could not schedule that call." };
+
+  // Awaited rather than fired and forgotten: a serverless function can be
+  // frozen the moment its response is returned, which would cut an
+  // in-flight request off mid-send. notifyScheduled swallows its own
+  // failures, so this cannot fail the booking.
+  await notifyScheduled({
+    organizerId: user.id,
+    inviteeId,
+    organizerName: organizer.display_name as string,
+    organizerUsername: organizer.username as string,
+    inviteeName: invitee.display_name as string,
+    inviteeUsername: invitee.username as string,
+    scheduledAt: when.toISOString(),
+    note: trimmedNote || null,
+  });
 
   revalidatePath("/people");
   return { scheduledId: data.id as string };
