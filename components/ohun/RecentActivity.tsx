@@ -1,10 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import { listRecentCalls } from "@/lib/calls/history";
 import { Avatar } from "./UserResult";
-import { Card } from "@/components/ui";
-import { LANGUAGE_FLAG, type CallHistoryEntry, type CallOutcome, type Profile } from "@/types";
+import { Card, Pill } from "@/components/ui";
+import {
+  LANGUAGE_FLAG,
+  type CallHistoryEntry,
+  type CallOutcome,
+  type DirectCallEntry,
+  type GroupCallEntry,
+  type HistoryPerson,
+  type Profile,
+} from "@/types";
 
 const OUTCOME_COPY: Record<CallOutcome, string> = {
   completed: "Completed",
@@ -76,24 +84,90 @@ function DirectionIcon({ outgoing, missed }: { outgoing: boolean; missed: boolea
   );
 }
 
-function HistoryRow({
+/** Shared chrome for a history row, whichever kind it is. */
+function Row({
+  avatar,
+  title,
+  meta,
+  when,
+  action,
+}: {
+  avatar: React.ReactNode;
+  title: string;
+  meta: React.ReactNode;
+  when: string;
+  action: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-4 border-b border-[var(--border)] py-3 last:border-b-0">
+      {avatar}
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-medium tracking-tight">{title}</p>
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-[var(--muted)]">
+          {meta}
+        </div>
+      </div>
+      <span className="shrink-0 text-xs text-[var(--muted)]">{when}</span>
+      {action}
+    </div>
+  );
+}
+
+function CallBackButton({
+  label,
+  pending,
+  onClick,
+}: {
+  label: string;
+  pending: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={pending}
+      aria-label={label}
+      title={label}
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--border)] text-[var(--muted)] transition-colors hover:bg-[var(--surface)] hover:text-[var(--accent)] disabled:opacity-50"
+    >
+      {pending ? (
+        <span
+          aria-hidden
+          className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--accent)]"
+        />
+      ) : (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path
+            d="M3 10.5c5-4 13-4 18 0v3.2c0 .8-.7 1.4-1.5 1.3l-3-.4a1.4 1.4 0 0 1-1.2-1.3v-1.5c-2.7-1-5.9-1-8.6 0v1.5c0 .7-.5 1.2-1.2 1.3l-3 .4A1.4 1.4 0 0 1 3 13.7z"
+            strokeLinejoin="round"
+          />
+        </svg>
+      )}
+    </button>
+  );
+}
+
+function DirectRow({
   entry,
   now,
+  pending,
   onCall,
 }: {
-  entry: CallHistoryEntry;
+  entry: DirectCallEntry;
   now: number;
-  onCall: (profile: CallHistoryEntry["counterpart"]) => void;
+  pending: boolean;
+  onCall: (profile: HistoryPerson) => void;
 }) {
   const missed = entry.outcome === "missed";
 
   return (
-    <div className="flex items-center gap-4 border-b border-[var(--border)] py-3 last:border-b-0">
-      <Avatar name={entry.counterpart.displayName} src={entry.counterpart.avatarUrl} />
-
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-medium tracking-tight">{entry.counterpart.displayName}</p>
-        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-[var(--muted)]">
+    <Row
+      avatar={<Avatar name={entry.counterpart.displayName} src={entry.counterpart.avatarUrl} />}
+      title={entry.counterpart.displayName}
+      when={formatWhen(entry.at, now)}
+      meta={
+        <>
           <DirectionIcon outgoing={entry.outgoing} missed={missed} />
           <span className={OUTCOME_TONE[entry.outcome]}>{OUTCOME_COPY[entry.outcome]}</span>
           {entry.durationSeconds !== null && (
@@ -108,26 +182,77 @@ function HistoryRow({
             <span aria-hidden> → </span>
             {LANGUAGE_FLAG[entry.toLanguage]}
           </span>
+        </>
+      }
+      action={
+        <CallBackButton
+          label={`Call ${entry.counterpart.displayName} back`}
+          pending={pending}
+          onClick={() => onCall(entry.counterpart)}
+        />
+      }
+    />
+  );
+}
+
+function GroupRow({ entry, now }: { entry: GroupCallEntry; now: number }) {
+  const names = entry.others.map((person) => person.displayName.split(" ")[0]);
+  const title =
+    names.length <= 2
+      ? `Group call with ${names.join(" and ")}`
+      : `Group call with ${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
+
+  return (
+    <Row
+      avatar={
+        // Overlapping faces rather than one, so the row reads as a group at
+        // a glance without a separate badge.
+        <div className="flex shrink-0 -space-x-3">
+          {entry.others.slice(0, 3).map((person) => (
+            <div key={person.id} className="rounded-full ring-2 ring-[var(--background)]">
+              <Avatar name={person.displayName} src={person.avatarUrl} />
+            </div>
+          ))}
         </div>
-      </div>
-
-      <span className="shrink-0 text-xs text-[var(--muted)]">{formatWhen(entry.at, now)}</span>
-
-      <button
-        type="button"
-        onClick={() => onCall(entry.counterpart)}
-        aria-label={`Call ${entry.counterpart.displayName} back`}
-        title="Call back"
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--border)] text-[var(--muted)] transition-colors hover:bg-[var(--surface)] hover:text-[var(--accent)]"
-      >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-          <path
-            d="M3 10.5c5-4 13-4 18 0v3.2c0 .8-.7 1.4-1.5 1.3l-3-.4a1.4 1.4 0 0 1-1.2-1.3v-1.5c-2.7-1-5.9-1-8.6 0v1.5c0 .7-.5 1.2-1.2 1.3l-3 .4A1.4 1.4 0 0 1 3 13.7z"
+      }
+      title={title}
+      when={formatWhen(entry.at, now)}
+      meta={
+        <>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
             strokeLinejoin="round"
-          />
-        </svg>
-      </button>
-    </div>
+            aria-hidden
+            className={entry.outcome === "missed" ? "text-red-400" : "text-[var(--muted)]"}
+          >
+            <path d="M16 20v-1a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v1" />
+            <circle cx="9.5" cy="8" r="3" />
+            <path d="M21 20v-1a3 3 0 0 0-2.5-3M16 5.5a3 3 0 0 1 0 5" />
+          </svg>
+          <span className={OUTCOME_TONE[entry.outcome]}>{OUTCOME_COPY[entry.outcome]}</span>
+          {entry.durationSeconds !== null && (
+            <>
+              <span aria-hidden>·</span>
+              <span>{formatDuration(entry.durationSeconds)}</span>
+            </>
+          )}
+          <span aria-hidden>·</span>
+          <span>{entry.others.length + 1} people</span>
+          <span aria-hidden>·</span>
+          <span>{entry.languages.map((code) => LANGUAGE_FLAG[code]).join(" ")}</span>
+        </>
+      }
+      // No call-back button: reopening a group call means opening a new room
+      // and re-inviting, which is a different action from redialling one
+      // person, and belongs to the deliberate "Start a group call" flow.
+      action={null}
+    />
   );
 }
 
@@ -137,11 +262,31 @@ export function RecentActivity({
 }: {
   /** Changes whenever a call ends, so the list reloads without a refresh. */
   refreshToken?: number;
-  onCall: (profile: Pick<Profile, "id" | "displayName">) => void;
+  /** Resolves to a message when the call could not be placed. */
+  onCall: (profile: Pick<Profile, "id" | "displayName">) => Promise<string | null>;
 }) {
   const [entries, setEntries] = useState<CallHistoryEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [callingId, setCallingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [, startAction] = useTransition();
+
+  // Placing the call from here rather than handing the click straight up:
+  // this section is far below the page-level error pill, so a failure has
+  // to be reported next to the button that caused it.
+  const callBack = useCallback(
+    (profile: HistoryPerson) => {
+      setError(null);
+      setCallingId(profile.id);
+      startAction(async () => {
+        const message = await onCall(profile);
+        setCallingId(null);
+        if (message) setError(message);
+      });
+    },
+    [onCall],
+  );
 
   const refresh = useCallback(() => {
     void listRecentCalls().then((rows) => {
@@ -168,6 +313,12 @@ export function RecentActivity({
         Recent calls
       </h2>
 
+      {error && (
+        <Pill tone="error" className="mb-3 w-full justify-center text-center">
+          {error}
+        </Pill>
+      )}
+
       <Card className="py-1">
         {entries.length === 0 ? (
           <p className="py-6 text-center text-sm text-[var(--muted)]">
@@ -175,7 +326,17 @@ export function RecentActivity({
           </p>
         ) : (
           entries.map((entry) => (
-            <HistoryRow key={entry.id} entry={entry} now={now} onCall={onCall} />
+            entry.kind === "group" ? (
+              <GroupRow key={entry.id} entry={entry} now={now} />
+            ) : (
+              <DirectRow
+                key={entry.id}
+                entry={entry}
+                now={now}
+                pending={callingId === entry.counterpart.id}
+                onCall={callBack}
+              />
+            )
           ))
         )}
       </Card>

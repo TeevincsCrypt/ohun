@@ -54,6 +54,21 @@ interface SessionOptions {
   speakLocally?: boolean;
   /** Fired once an utterance has been translated, for delivery to the peer. */
   onTranslation?: (payload: TranslationPayload) => void;
+  /**
+   * Skip the built-in one-to-one translation and hand each finished
+   * utterance to onUtterance instead. A group call needs the same sentence
+   * in several languages at once, which this hook's single `targetLanguage`
+   * cannot express — so the caller does that part itself.
+   */
+  translateManually?: boolean;
+  /** Receives each completed utterance when translateManually is set. */
+  onUtterance?: (text: string) => void | Promise<void>;
+  /**
+   * A microphone stream the caller already holds, shared rather than
+   * captured again. See MicRecorderConfig.stream — a call passes the one
+   * WebRTC is using so that muting affects both.
+   */
+  stream?: MediaStream | null;
 }
 
 /**
@@ -65,7 +80,10 @@ export function useTranscriptionSession({
   language,
   targetLanguage,
   speakLocally = true,
+  translateManually = false,
   onTranslation,
+  onUtterance,
+  stream,
 }: SessionOptions) {
   const [state, setState] = useState<TranscriptionSessionState>(initialState);
 
@@ -93,10 +111,38 @@ export function useTranscriptionSession({
   /** Latest translation, kept for the "Repeat translation" button. */
   const lastTranslationRef = useRef("");
 
+  /**
+   * Reasons transcription input is currently withheld. Audio is still
+   * captured; it just is not sent for transcription while any reason holds.
+   *
+   * A set rather than a flag because the reasons are independent and
+   * overlap. Muting while a translation is playing, then the translation
+   * finishing, must not un-mute — which is exactly what a single boolean
+   * would do, since whichever cause cleared last would win.
+   *
+   * The two reasons in use:
+   *   "playback" — a synthesized translation is being spoken. It comes out
+   *     of the same speakers the microphone is listening to, and browser
+   *     echo cancellation covers the WebRTC render path rather than
+   *     speechSynthesis, so without this the app transcribes its own output.
+   *   "muted" — the user muted themselves. Transcription captures the
+   *     microphone through its own getUserMedia, separate from the one
+   *     WebRTC holds, so disabling the outgoing track silences peers but
+   *     leaves transcription running. Muting has to stop both, or a muted
+   *     participant is still captioned and translated to the room.
+   */
+  const suppressReasonsRef = useRef(new Set<string>());
+
   // Held in a ref so a caller passing an inline arrow does not retrigger the
   // media effect on every render and tear down a live transcription stream.
   const onTranslationRef = useRef(onTranslation);
   onTranslationRef.current = onTranslation;
+
+  const onUtteranceRef = useRef(onUtterance);
+  onUtteranceRef.current = onUtterance;
+
+  const streamRefOption = useRef(stream);
+  streamRefOption.current = stream;
 
   const composeTranscript = useCallback(
     () => [priorTurnsRef.current, currentTurnTextRef.current].filter(Boolean).join(" "),
@@ -142,6 +188,34 @@ export function useTranscriptionSession({
       }));
     }
   }, [teardown]);
+
+  /**
+   * Hands a finished utterance to the caller, which owns the translation.
+   * Mirrors translateAndSpeak's state handling so the "Translating…"
+   * indicator behaves the same in either mode.
+   */
+  const delegateUtterance = useCallback(
+    async (text: string, isCurrent: () => boolean) => {
+      if (isCurrent()) {
+        setState((current) => ({ ...current, isTranslating: true, translationError: null }));
+      }
+      try {
+        await onUtteranceRef.current?.(text);
+      } catch (error) {
+        console.error("[ohun] utterance handler failed", error);
+        if (!isCurrent()) return;
+        setState((current) => ({
+          ...current,
+          translationError: "Could not translate that.",
+        }));
+      } finally {
+        if (isCurrent()) {
+          setState((current) => ({ ...current, isTranslating: false }));
+        }
+      }
+    },
+    [],
+  );
 
   /** Translate one finished utterance, then speak it in the listener's language. */
   const translateAndSpeak = useCallback(
@@ -250,7 +324,11 @@ export function useTranscriptionSession({
           // and produce translations of half-finished sentences.
           if (isFinal && text.trim() && !translatedTurnsRef.current.has(turnOrder)) {
             translatedTurnsRef.current.add(turnOrder);
-            void translateAndSpeak(text, isCurrent);
+            if (translateManually) {
+              void delegateUtterance(text, isCurrent);
+            } else {
+              void translateAndSpeak(text, isCurrent);
+            }
           }
         },
         onError: (error) => {
@@ -275,7 +353,11 @@ export function useTranscriptionSession({
       streamRef.current = stream;
 
       const recorder = createMicRecorder({
-        onAudioChunk: (chunk) => streamRef.current?.sendAudio(chunk),
+        stream: streamRefOption.current ?? undefined,
+        onAudioChunk: (chunk) => {
+          if (suppressReasonsRef.current.size > 0) return;
+          streamRef.current?.sendAudio(chunk);
+        },
         onError: (error) => {
           if (!isCurrent()) return;
           fail(error.message);
@@ -297,7 +379,15 @@ export function useTranscriptionSession({
       fail(message);
       await teardown();
     }
-  }, [composeTranscript, language, resetTranscriptState, teardown, translateAndSpeak]);
+  }, [
+    composeTranscript,
+    delegateUtterance,
+    language,
+    resetTranscriptState,
+    teardown,
+    translateAndSpeak,
+    translateManually,
+  ]);
 
   // Resolved after mount so server and first client render agree.
   const [canSpeakAloud, setCanSpeakAloud] = useState(false);
@@ -313,6 +403,12 @@ export function useTranscriptionSession({
     };
   }, [teardown]);
 
+  /** Gate transcription input under a named reason — see suppressReasonsRef. */
+  const setInputSuppressed = useCallback((suppressed: boolean, reason: string) => {
+    if (suppressed) suppressReasonsRef.current.add(reason);
+    else suppressReasonsRef.current.delete(reason);
+  }, []);
+
   return {
     ...state,
     canSpeakAloud,
@@ -320,5 +416,6 @@ export function useTranscriptionSession({
     start,
     stop,
     repeatTranslation,
+    setInputSuppressed,
   };
 }

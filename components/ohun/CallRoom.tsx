@@ -268,8 +268,11 @@ export function CallRoom({
   const latest = captions[captions.length - 1];
 
   return (
-    <div className="theme-dark relative flex flex-1 flex-col overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
-      {/* Ambient light, keyed to whichever side last spoke. */}
+    <div className="theme-dark relative flex min-h-0 flex-1 flex-col overflow-x-clip bg-[var(--background)] text-[var(--foreground)] lg:h-[100dvh] lg:flex-none lg:overflow-hidden">
+      {/* Ambient light, keyed to whichever side last spoke. Given its own
+          clipping container now that the page wrapper only clips
+          horizontally, so it cannot add scroll height of its own. */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
       <div
         aria-hidden
         className="glow-field left-1/2 top-[18%] h-[420px] w-[620px] -translate-x-1/2 opacity-60 transition-opacity duration-1000"
@@ -281,6 +284,7 @@ export function CallRoom({
             : "transparent",
         }}
       />
+      </div>
 
       {/* Remote audio. Muting this element is the speaker control — it never
           touches the microphone, which must keep capturing. */}
@@ -306,7 +310,7 @@ export function CallRoom({
         </div>
       </header>
 
-      <main className="relative z-10 mx-auto grid w-full max-w-[1180px] flex-1 gap-4 px-3 py-4 sm:gap-5 sm:px-5 sm:py-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <main className="relative z-10 mx-auto grid w-full min-h-0 max-w-[1180px] flex-1 gap-4 px-3 py-4 sm:gap-5 sm:px-5 sm:py-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[minmax(0,1fr)]">
         {/* --- stage ------------------------------------------------------ */}
         <section className="card-lit animate-rise flex min-h-0 min-w-0 flex-col rounded-3xl p-4 sm:p-6">
           {/* On a phone the timer takes its own line above the two speaker
@@ -563,7 +567,7 @@ export function CallRoom({
         </section>
 
         {/* --- transcript ------------------------------------------------- */}
-        <aside className="card-lit animate-rise flex min-h-0 min-w-0 flex-col rounded-3xl p-4 sm:p-5">
+        <aside className="card-lit animate-rise flex max-h-[60vh] min-h-0 min-w-0 flex-col rounded-3xl p-4 sm:p-5 lg:max-h-none">
           <LiveCaptions
             captions={captions}
             liveTranscript={liveTranscript}

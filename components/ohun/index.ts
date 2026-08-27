@@ -23,3 +23,7 @@ export * from "./RoomLinkCard";
 export * from "./FeatureStrip";
 export * from "./CallPreview";
 export * from "./AudioWaveform";
+export * from "./RoomCall";
+export * from "./RoomCaptions";
+export * from "./AddParticipantDialog";
+export * from "./RoomInviteWatcher";
