@@ -33,10 +33,26 @@ function formatDuration(totalSeconds: number): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+/** Short enough to survive a narrow header without being dropped. */
+const STATUS_SHORT: Record<CallConnectionState, string> = {
+  idle: "Idle",
+  calling: "Calling",
+  ringing: "Ringing",
+  connecting: "Connecting",
+  connected: "Connected",
+  declined: "Declined",
+  ended: "Ended",
+  failed: "Failed",
+};
+
 /**
  * Connection quality, derived from state we actually have rather than
  * invented. Without a TURN relay a call really is more fragile, which is
  * worth surfacing as "limited" rather than claiming everything is fine.
+ *
+ * The label is never hidden. Bars alone say nothing — three grey ticks look
+ * identical whether a call is connecting, has dropped, or is fine without a
+ * relay — so a phone gets the short wording rather than no wording.
  */
 function ConnectionQuality({
   state,
@@ -48,7 +64,9 @@ function ConnectionQuality({
   const good = state === "connected" && hasTurn;
   const limited = state === "connected" && !hasTurn;
 
-  const label = good ? "Good connection" : limited ? "Limited relay" : STATUS_COPY[state];
+  const full = good ? "Good connection" : limited ? "Limited relay" : STATUS_COPY[state];
+  const short = good ? "Good" : limited ? "Limited" : STATUS_SHORT[state];
+
   const color = good
     ? "var(--accent)"
     : limited
@@ -60,24 +78,37 @@ function ConnectionQuality({
   // Three bars: all lit when relayed and connected, two when connected
   // without a relay, one otherwise.
   const lit = good ? 3 : limited ? 2 : 1;
+  const settling = state === "calling" || state === "ringing" || state === "connecting";
 
   return (
     <div
-      className="flex items-center gap-2.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-2 sm:px-3.5"
-      title={label}
+      role="status"
+      aria-label={full}
+      title={full}
+      className="flex shrink-0 items-center gap-2 rounded-full border px-2.5 py-1.5 sm:gap-2.5 sm:px-3.5 sm:py-2"
+      style={{
+        borderColor: good || limited || state === "failed" ? color : "var(--border)",
+        backgroundColor:
+          good || limited || state === "failed"
+            ? `color-mix(in srgb, ${color} 12%, transparent)`
+            : "var(--surface)",
+      }}
     >
-      <span className="hidden text-xs font-medium sm:inline" style={{ color }}>
-        {label}
+      <span
+        className={`text-[11px] font-medium sm:text-xs ${settling ? "animate-pulse" : ""}`}
+        style={{ color }}
+      >
+        {/* Short wording on a phone, full wording once there is room. */}
+        <span className="sm:hidden">{short}</span>
+        <span className="hidden sm:inline">{full}</span>
       </span>
+
       <span className="flex items-end gap-[2px]" aria-hidden>
         {[5, 8, 11].map((height, index) => (
           <span
             key={height}
             className="w-[3px] rounded-full transition-colors"
-            style={{
-              height,
-              backgroundColor: index < lit ? color : "var(--border)",
-            }}
+            style={{ height, backgroundColor: index < lit ? color : "var(--border)" }}
           />
         ))}
       </span>
