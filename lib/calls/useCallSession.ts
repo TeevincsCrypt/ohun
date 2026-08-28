@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { createAudioPeer, type AudioPeer, type PeerSignal } from "@/lib/webrtc/peer";
@@ -148,6 +148,13 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
    * then the text is sent to them to be spoken on their device. Only the
    * translated text crosses the network — never synthesized audio.
    */
+  // Memoised even though the hook now reads it through a ref: an inline
+  // array here is what caused the session to restart on every render.
+  const callLanguages = useMemo(
+    () => [myLanguage, theirLanguage],
+    [myLanguage, theirLanguage],
+  );
+
   const transcription = useTranscriptionSession({
     // The peer's capture, shared rather than opened a second time — see
     // toggleMicrophone.
@@ -155,7 +162,7 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
     language: myLanguage,
     // Both sides' languages, so the model can follow either and report
     // which was actually spoken.
-    languages: [myLanguage, theirLanguage],
+    languages: callLanguages,
     targetLanguage: theirLanguage,
     speakLocally: false,
     onTranslation: ({ originalText, translatedText, spokenLanguage }) => {

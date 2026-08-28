@@ -153,6 +153,24 @@ export function useTranscriptionSession({
   const streamRefOption = useRef(stream);
   streamRefOption.current = stream;
 
+  /**
+   * Held in a ref, not a dependency.
+   *
+   * `languages` is an array, so a caller writing it inline — which is the
+   * natural way to write it — hands this hook a new reference on every
+   * render. As a dependency of start() that makes start() a new function
+   * every render, and the effect that owns the session then tears it down
+   * and opens another. With a duration timer rendering once a second, that
+   * meant a fresh token, WebSocket and AudioContext every second for the
+   * whole call, which is enough churn to take the peer connection down
+   * with it.
+   *
+   * The set only matters when a session is opened, so reading it at that
+   * moment is both sufficient and immune to the caller's array identity.
+   */
+  const languagesRef = useRef(languages);
+  languagesRef.current = languages;
+
   const composeTranscript = useCallback(
     () => [priorTurnsRef.current, currentTurnTextRef.current].filter(Boolean).join(" "),
     [],
@@ -284,6 +302,17 @@ export function useTranscriptionSession({
 
   const start = useCallback(async () => {
     const generation = (generationRef.current += 1);
+
+    // Opening a session while one is already live means something upstream
+    // is restarting it. That is not fatal, but it costs a token, a
+    // handshake and an AudioContext each time, and at any frequency it will
+    // destabilise the call it is running inside — so say so rather than
+    // quietly absorbing it.
+    if (streamRef.current) {
+      console.warn(
+        "[ohun] transcription restarted while a session was already open — check the effect's dependencies",
+      );
+    }
     const isCurrent = () => mountedRef.current && generationRef.current === generation;
 
     setState({ ...initialState, connectionState: "connecting", micState: "connecting" });
@@ -302,7 +331,7 @@ export function useTranscriptionSession({
     try {
       const stream = await createTranscriptionStream({
         language,
-        languages,
+        languages: languagesRef.current,
         onOpen: () => {
           if (!isCurrent()) return;
           setState((current) => ({
@@ -395,7 +424,6 @@ export function useTranscriptionSession({
     composeTranscript,
     delegateUtterance,
     language,
-    languages,
     resetTranscriptState,
     teardown,
     translateAndSpeak,
