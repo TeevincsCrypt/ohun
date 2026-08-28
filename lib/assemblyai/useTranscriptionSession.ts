@@ -23,6 +23,23 @@ interface TranscriptionSessionState {
   translationError: string | null;
 }
 
+/**
+ * A zeroed buffer matching the shape of a real chunk.
+ *
+ * Cached by size: chunks arrive at a steady length many times a second, and
+ * allocating a new buffer for each one during a long mute is wasted work.
+ */
+const silenceBySize = new Map<number, ArrayBuffer>();
+
+function silenceLike(chunk: ArrayBuffer): ArrayBuffer {
+  const cached = silenceBySize.get(chunk.byteLength);
+  if (cached) return cached;
+
+  const silence = new ArrayBuffer(chunk.byteLength);
+  silenceBySize.set(chunk.byteLength, silence);
+  return silence;
+}
+
 const initialState: TranscriptionSessionState = {
   connectionState: "disconnected",
   micState: "disconnected",
@@ -396,7 +413,21 @@ export function useTranscriptionSession({
       const recorder = createMicRecorder({
         stream: streamRefOption.current ?? undefined,
         onAudioChunk: (chunk) => {
-          if (suppressReasonsRef.current.size > 0) return;
+          // Suppressed audio is replaced with silence, not dropped.
+          //
+          // A streaming session expects a continuous feed. Sending nothing
+          // at all leaves a hole in it, and after a mute of any length the
+          // session never produces another turn — the speaker unmutes and
+          // is simply never transcribed again for the rest of the call.
+          //
+          // Silence keeps the stream unbroken while still guaranteeing
+          // nothing is transcribed, which is the whole point of suppressing
+          // it: a muted participant must not be captioned, and playback
+          // must not be transcribed back into the room.
+          if (suppressReasonsRef.current.size > 0) {
+            streamRef.current?.sendAudio(silenceLike(chunk));
+            return;
+          }
           streamRef.current?.sendAudio(chunk);
         },
         onError: (error) => {
