@@ -15,10 +15,9 @@ const STREAMING_SAMPLE_RATE = 16_000;
 const CONNECT_TIMEOUT_MS = 15_000;
 
 /**
- * The model for a single-language session. English has a dedicated model
- * that is the fastest thing available; everything else uses the
- * multilingual one. Neither needs detection — there is nothing to detect
- * between when only one language is in play.
+ * English has a dedicated model that is the fastest thing available;
+ * everything else uses the multilingual one, which covers every language
+ * calls support.
  */
 function speechModelFor(language: LanguageCode): StreamingSpeechModel {
   return language === "en" ? "universal-streaming-english" : "universal-streaming-multilingual";
@@ -123,6 +122,25 @@ async function openSession(
   };
 }
 
+/**
+ * Universal-3.5 Pro is opt-in, and off by default.
+ *
+ * It is the only model that accepts `languageCodes`, so it is what makes
+ * detection and mid-sentence code-switching possible — but it is not
+ * enabled on every account, and an account without it does not fail
+ * cleanly. The session connects and then simply never emits a turn, which
+ * looks exactly like working audio with no transcription and produces no
+ * error to catch. A connect-failure fallback does not help, because the
+ * connect succeeds.
+ *
+ * Rather than gamble the core feature on that, the default is the model
+ * that has always worked. Set NEXT_PUBLIC_ASSEMBLYAI_PRO=true to try the
+ * newer one on an account known to have it.
+ */
+function proModelEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_ASSEMBLYAI_PRO === "true";
+}
+
 export async function createTranscriptionStream(
   config: TranscriptionStreamConfig,
 ): Promise<TranscriptionStream> {
@@ -131,9 +149,9 @@ export async function createTranscriptionStream(
   // Deduplicated, and always including the speaker's own language even if
   // the caller forgot it.
   const languages = [...new Set([config.language, ...(config.languages ?? [])])];
-  const multilingual = languages.length > 1;
+  const usePro = languages.length > 1 && proModelEnabled();
 
-  if (!multilingual) {
+  if (!usePro) {
     return openSession(config, {
       token,
       speechModel: speechModelFor(config.language),
@@ -150,11 +168,8 @@ export async function createTranscriptionStream(
       withLanguageOptions: true,
     });
   } catch (error) {
-    // Universal-3.5 Pro is the only model that accepts languageCodes, and
-    // it may not be enabled on every account. Rather than let a whole
-    // cross-language call go untranscribed — which is nearly every call
-    // OHUN makes — fall back to the multilingual model that has always
-    // worked, losing detection and code-switching but nothing else.
+    // Only catches a refused connection. A session that opens and stays
+    // silent is why this model is opt-in rather than the default.
     console.warn(
       "[assemblyai] universal-3-5-pro unavailable, falling back to universal-streaming-multilingual",
       error,
