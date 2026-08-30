@@ -7,8 +7,10 @@ import { createAudioMesh, type AudioMesh, type MeshSignal } from "@/lib/webrtc/m
 import { useTranscriptionSession } from "@/lib/assemblyai/useTranscriptionSession";
 import { SpeechQueue } from "@/lib/audio/queue";
 import { setParticipantState } from "./actions";
+import { recordUtterance } from "@/lib/summary/actions";
 import {
   activeParticipants,
+  isCallLanguage,
   targetLanguagesFor,
   type CallLanguageCode,
   type Room,
@@ -66,6 +68,11 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
   const audioElementsRef = useRef(new Map<string, HTMLAudioElement>());
   const remoteStreamsRef = useRef(new Map<string, MediaStream>());
 
+  const languagesInRoom = useMemo(
+    () => [...new Set(activeParticipants(room).map((participant) => participant.language))],
+    [room],
+  );
+
   const myLanguage = useMemo(
     () => room.participants.find((participant) => participant.userId === selfId)?.language ?? "en",
     [room.participants, selfId],
@@ -121,13 +128,20 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
     // muting — which disables these tracks — stops transcription too.
     stream: localStream,
     language: myLanguage,
+    languages: languagesInRoom,
     // Unused in the group path — onTranslation below does the fan-out — but
     // the hook requires a target, so name the first one for its logging.
     targetLanguage: myLanguage,
     speakLocally: false,
     translateManually: true,
-    onUtterance: async (text) => {
-      const targets = targetLanguagesFor(roomRef.current, selfId);
+    onUtterance: async (text, spokenLanguage) => {
+      // Targets are computed against what was actually spoken, so someone
+      // answering in another participant's language is not translated back
+      // into it pointlessly.
+      const spoken = isCallLanguage(spokenLanguage) ? spokenLanguage : myLanguage;
+      const targets = targetLanguagesFor(roomRef.current, selfId).filter(
+        (code) => code !== spoken,
+      );
 
       // Everyone in the room already speaks my language: nothing to do.
       if (targets.length === 0) return;
@@ -135,7 +149,7 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
       const response = await fetch("/api/translate-many", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, from: myLanguage, to: targets }),
+        body: JSON.stringify({ text, from: spoken, to: targets }),
       });
 
       if (!response.ok) {
@@ -146,6 +160,11 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
       const { byLanguage } = (await response.json()) as {
         byLanguage: Partial<Record<CallLanguageCode, string>>;
       };
+
+      void recordUtterance(
+        { roomId: initialRoom.id },
+        { originalText: text, spokenLanguage: spoken, translations: byLanguage },
+      );
 
       const message: CaptionMessage = {
         id: `${selfId}-${Date.now()}`,
@@ -391,6 +410,7 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
     hasTurn,
     captions,
     connectedPeers,
+    languagesInRoom,
     localStream,
     myLanguage,
     liveTranscript: transcription.transcript,

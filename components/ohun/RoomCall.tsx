@@ -7,6 +7,7 @@ import { Avatar } from "./UserResult";
 import { AudioWaveform } from "./AudioWaveform";
 import { RoomCaptions } from "./RoomCaptions";
 import { AddParticipantDialog } from "./AddParticipantDialog";
+import { CallSummaryPanel } from "./CallSummaryPanel";
 import { Logo } from "./Logo";
 import {
   LANGUAGE_FLAG,
@@ -105,6 +106,7 @@ export function RoomCall({ room: initialRoom, self }: { room: Room; self: Profil
     hasTurn,
     captions,
     connectedPeers,
+    languagesInRoom,
     localStream,
     myLanguage,
     liveTranscript,
@@ -121,18 +123,27 @@ export function RoomCall({ room: initialRoom, self }: { room: Room; self: Profil
   const seatedIds = useMemo(() => seated.map((participant) => participant.userId), [seated]);
   const full = seated.length >= MAX_ROOM_PARTICIPANTS;
 
-  // Once the host ends the call, everyone is returned to People.
-  useEffect(() => {
-    if (room.status === "ended") {
-      const timer = setTimeout(() => router.push("/people"), 1500);
-      return () => clearTimeout(timer);
-    }
-  }, [room.status, router]);
+  // Once the room closes, everyone gets the recap rather than being
+  // bounced straight back to People.
+  const [left, setLeft] = useState(false);
+  const finished = room.status === "ended" || left;
 
-  const languagesInRoom = useMemo(
-    () => [...new Set(seated.map((participant) => participant.language))],
-    [seated],
-  );
+  const leaveAndShowSummary = () => {
+    setLeft(true);
+    void leave();
+  };
+
+  if (finished) {
+    return (
+      <div className="theme-dark flex min-h-0 flex-1 flex-col justify-center bg-[var(--background)] px-4 py-10 text-[var(--foreground)]">
+        <CallSummaryPanel
+          callRef={{ roomId: room.id }}
+          myLanguage={myLanguage}
+          onDone={() => router.push("/people")}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="theme-dark relative flex min-h-0 flex-1 flex-col overflow-x-clip bg-[var(--background)] text-[var(--foreground)] lg:h-[100dvh] lg:flex-none lg:overflow-hidden">
@@ -152,7 +163,7 @@ export function RoomCall({ room: initialRoom, self }: { room: Room; self: Profil
           </span>
           <button
             type="button"
-            onClick={() => void leave().then(() => router.push("/people"))}
+            onClick={leaveAndShowSummary}
             className="flex items-center gap-2 rounded-full border border-[var(--danger-border)] bg-[var(--danger-soft)] px-4 py-2 text-sm font-medium text-[var(--danger)] transition-colors hover:brightness-110"
           >
             <span className="hidden sm:inline">Leave</span>
@@ -282,7 +293,7 @@ export function RoomCall({ room: initialRoom, self }: { room: Room; self: Profil
 
             <button
               type="button"
-              onClick={() => void leave().then(() => router.push("/people"))}
+              onClick={leaveAndShowSummary}
               aria-label="Leave call"
               className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--danger)] text-[#1a0505] shadow-[0_8px_28px_-6px_var(--danger-border)] transition-transform duration-150 hover:brightness-110 active:scale-95"
             >

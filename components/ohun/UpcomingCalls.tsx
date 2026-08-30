@@ -4,7 +4,6 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { cancelScheduledCall, startScheduledCall } from "@/lib/schedule/actions";
 import { Avatar } from "./UserResult";
-import { UpgradeDialog } from "./UpgradeDialog";
 import { Button, Card, Pill } from "@/components/ui";
 import { LANGUAGE_FLAG, isJoinable, type ScheduledCall } from "@/types";
 
@@ -48,7 +47,6 @@ function ScheduledRow({
   const router = useRouter();
   const [pending, startAction] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [showUpgrade, setShowUpgrade] = useState(false);
 
   const joinable = isJoinable(scheduled);
   const relative = relativeLabel(scheduled.scheduledAt, now);
@@ -123,11 +121,7 @@ function ScheduledRow({
               setError(null);
               const result = await startScheduledCall(scheduled.id);
               if (result.error || !result.callId) {
-                if (result.code === "free_tier_exhausted") {
-                  setShowUpgrade(true);
-                } else {
-                  setError(result.error ?? "Could not start the call.");
-                }
+                setError(result.error ?? "Could not start the call.");
                 return;
               }
               router.push(`/call/${result.callId}`);
@@ -137,8 +131,6 @@ function ScheduledRow({
           {pending ? "Starting…" : joinable ? "Start now" : "Not yet"}
         </Button>
       </div>
-
-      {showUpgrade && <UpgradeDialog onClose={() => setShowUpgrade(false)} />}
     </Card>
   );
 }

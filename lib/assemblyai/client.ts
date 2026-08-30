@@ -15,28 +15,39 @@ const STREAMING_SAMPLE_RATE = 16_000;
 const CONNECT_TIMEOUT_MS = 15_000;
 
 /**
- * AssemblyAI ships separate streaming models: an English-only one (fastest)
- * and a multilingual one covering English, Spanish, German, French,
- * Portuguese and Italian. Picking per-language is what makes French and
- * Spanish transcribe properly instead of being forced through the
- * English-tuned model.
+ * The model for a single-language session. English has a dedicated model
+ * that is the fastest thing available; everything else uses the
+ * multilingual one. Neither needs detection — there is nothing to detect
+ * between when only one language is in play.
  */
 function speechModelFor(language: LanguageCode): StreamingSpeechModel {
-  return language === "en"
-    ? "universal-streaming-english"
-    : "universal-streaming-multilingual";
+  return language === "en" ? "universal-streaming-english" : "universal-streaming-multilingual";
 }
 
-export async function createTranscriptionStream(
+/**
+ * Opens one streaming session with a given model, wired and connected.
+ *
+ * Separated out so the caller can attempt a preferred configuration and
+ * fall back without duplicating the wiring — see createTranscriptionStream.
+ */
+async function openSession(
   config: TranscriptionStreamConfig,
+  options: {
+    token: string;
+    speechModel: StreamingSpeechModel;
+    languages: LanguageCode[];
+    /** Language steering and detection — Universal-3.5 Pro only. */
+    withLanguageOptions: boolean;
+  },
 ): Promise<TranscriptionStream> {
-  const token = await fetchStreamingToken();
+  const { token, speechModel, languages, withLanguageOptions } = options;
 
   const transcriber = new StreamingTranscriber({
     token,
     sampleRate: STREAMING_SAMPLE_RATE,
     formatTurns: true,
-    speechModel: speechModelFor(config.language),
+    speechModel,
+    ...(withLanguageOptions ? { languageCodes: languages, languageDetection: true } : {}),
     // The SDK defaults to a 1000ms handshake budget, which is sized for a
     // server sitting close to AssemblyAI. From a browser that budget has to
     // cover DNS + TCP + TLS + the HTTP upgrade + the server's `Begin` frame,
@@ -48,10 +59,18 @@ export async function createTranscriptionStream(
   });
 
   transcriber.on("turn", (event: TurnEvent) => {
+    // The model reports what it actually heard. Only trust it when it names
+    // a language this conversation contains: a stray detection outside the
+    // room would send the translator a source nobody is speaking.
+    const detected = event.language_code as LanguageCode | undefined;
+    const usable = detected && languages.includes(detected) ? detected : undefined;
+
     config.onTranscript({
       turnOrder: event.turn_order,
       text: event.transcript,
       isFinal: event.end_of_turn,
+      detectedLanguage: usable,
+      languageConfidence: event.language_confidence,
     });
   });
 
@@ -66,14 +85,14 @@ export async function createTranscriptionStream(
   let hasOpened = false;
 
   transcriber.on("error", (error: Error) => {
-    console.error("[assemblyai] streaming error:", error, { hasOpened });
+    console.error("[assemblyai] streaming error:", error, { speechModel, hasOpened });
     if (!hasOpened) return;
     config.onError(new TranscriptionError("connection", error.message));
   });
 
   transcriber.on("close", (code: number, reason: string) => {
     if (code !== 1000) {
-      console.error("[assemblyai] socket closed:", { code, reason, hasOpened });
+      console.error("[assemblyai] socket closed:", { code, reason, speechModel, hasOpened });
     }
     if (!hasOpened) return;
     config.onClose?.(code, reason);
@@ -83,6 +102,9 @@ export async function createTranscriptionStream(
   try {
     beginEvent = await transcriber.connect();
   } catch (error) {
+    // Closed explicitly: a failed connect can leave a socket the SDK is
+    // still holding, and the fallback attempt must not inherit it.
+    void transcriber.close().catch(() => {});
     throw new TranscriptionError(
       "connection",
       error instanceof Error
@@ -93,11 +115,60 @@ export async function createTranscriptionStream(
 
   hasOpened = true;
   config.onOpen?.({ sessionId: beginEvent.id });
+  console.info("[assemblyai] session open", { speechModel, languages });
 
   return {
     sendAudio: (chunk) => transcriber.sendAudio(chunk),
     close: () => transcriber.close(),
   };
+}
+
+export async function createTranscriptionStream(
+  config: TranscriptionStreamConfig,
+): Promise<TranscriptionStream> {
+  const token = await fetchStreamingToken();
+
+  // Deduplicated, and always including the speaker's own language even if
+  // the caller forgot it.
+  const languages = [...new Set([config.language, ...(config.languages ?? [])])];
+  const multilingual = languages.length > 1;
+
+  if (!multilingual) {
+    return openSession(config, {
+      token,
+      speechModel: speechModelFor(config.language),
+      languages,
+      withLanguageOptions: false,
+    });
+  }
+
+  try {
+    return await openSession(config, {
+      token,
+      speechModel: "universal-3-5-pro",
+      languages,
+      withLanguageOptions: true,
+    });
+  } catch (error) {
+    // Universal-3.5 Pro is the only model that accepts languageCodes, and
+    // it may not be enabled on every account. Rather than let a whole
+    // cross-language call go untranscribed — which is nearly every call
+    // OHUN makes — fall back to the multilingual model that has always
+    // worked, losing detection and code-switching but nothing else.
+    console.warn(
+      "[assemblyai] universal-3-5-pro unavailable, falling back to universal-streaming-multilingual",
+      error,
+    );
+
+    // A fresh token: the first may have been consumed by the failed attempt.
+    const fallbackToken = await fetchStreamingToken();
+    return openSession(config, {
+      token: fallbackToken,
+      speechModel: "universal-streaming-multilingual",
+      languages,
+      withLanguageOptions: false,
+    });
+  }
 }
 
 async function fetchStreamingToken(): Promise<string> {

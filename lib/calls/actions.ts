@@ -1,13 +1,11 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { consumeFreeCallOrReject } from "@/lib/billing/actions";
-import { isCallLanguage, type CallStatus, type StartCallErrorCode } from "@/types";
+import { isCallLanguage, type CallStatus } from "@/types";
 
 export interface StartCallResult {
   callId?: string;
   error?: string;
-  code?: StartCallErrorCode;
 }
 
 /**
@@ -39,16 +37,6 @@ export async function startCall(receiverId: string): Promise<StartCallResult> {
   if (!caller || !receiver) return { error: "Could not find that person." };
   if (!isCallLanguage(caller.preferred_language) || !isCallLanguage(receiver.preferred_language)) {
     return { error: "One of you has an unsupported language set." };
-  }
-
-  // Only the caller's plan is metered — answering a call never costs the
-  // receiver anything, so there is nothing to check on their side.
-  const allowed = await consumeFreeCallOrReject(user.id);
-  if (!allowed) {
-    return {
-      error: "You've used all your free calls this month. Subscribe to keep calling.",
-      code: "free_tier_exhausted",
-    };
   }
 
   // Clear any of this caller's stale ringing calls so a refresh mid-ring

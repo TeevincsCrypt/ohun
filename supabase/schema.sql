@@ -281,7 +281,17 @@ create policy "users delete own avatar"
   using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
 
 -- ---------------------------------------------------------------------------
--- Phase 6: billing (free tier + tiun subscription). Safe to re-run.
+-- Phase 6: billing columns. Retained but no longer used by the app.
+--
+-- OHUN is free: there is no plan, no quota and no checkout. These columns
+-- are left in place rather than dropped because dropping is destructive and
+-- irreversible, and an unused column costs nothing. Nothing reads or writes
+-- them, so they simply sit at their defaults.
+--
+-- The column privilege block further down still names them, which is why
+-- they are defined here at all: revoking table-wide UPDATE and granting
+-- back an explicit list is what protects every column not on that list, and
+-- that mechanism is still doing real work for room_slug and is_guest.
 -- ---------------------------------------------------------------------------
 
 alter table public.profiles
@@ -654,3 +664,107 @@ do $$ begin
   alter publication supabase_realtime add table public.room_participants;
 exception when duplicate_object then null;
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- Phase 11: transcripts and post-call summaries.
+--
+-- Every call already produces a full multilingual transcript and then threw
+-- it away when the room closed. Storing it costs little and is what makes a
+-- summary possible at all.
+--
+-- One table covers both kinds of call: exactly one of call_id / room_id is
+-- set, which the check below enforces. A separate table per kind would mean
+-- duplicating the policies and the summary path for no gain.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.utterances (
+  id          uuid primary key default gen_random_uuid(),
+  call_id     uuid references public.calls(id) on delete cascade,
+  room_id     uuid references public.rooms(id) on delete cascade,
+  speaker_id  uuid not null references public.profiles(id) on delete cascade,
+  -- What was actually said, and the language it was actually said in —
+  -- which is the detected one, not the speaker's profile setting.
+  original_text text not null,
+  spoken_language text not null
+    check (spoken_language in ('en', 'fr', 'es', 'de', 'pt', 'it')),
+  -- Every language it was rendered into, keyed by code.
+  translations jsonb not null default '{}'::jsonb,
+  said_at     timestamptz not null default now(),
+
+  constraint utterance_belongs_to_one_call
+    check ((call_id is null) <> (room_id is null))
+);
+
+create index if not exists utterances_call_idx on public.utterances (call_id, said_at);
+create index if not exists utterances_room_idx on public.utterances (room_id, said_at);
+
+create table if not exists public.call_summaries (
+  id         uuid primary key default gen_random_uuid(),
+  call_id    uuid unique references public.calls(id) on delete cascade,
+  room_id    uuid unique references public.rooms(id) on delete cascade,
+  -- Keyed by language code, so each participant reads the summary in their
+  -- own language rather than the one the conversation happened to start in.
+  summaries  jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+
+  constraint summary_belongs_to_one_call
+    check ((call_id is null) <> (room_id is null))
+);
+
+-- ---------------------------------------------------------------------------
+-- Visibility follows the call the row belongs to. Written as definer
+-- functions for the same reason is_room_participant is: a policy that has to
+-- read another table to answer re-enters that table's own policies, and for
+-- rooms that recurses.
+-- ---------------------------------------------------------------------------
+create or replace function public.can_read_call(target_call uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.calls
+    where id = target_call
+      and (caller_id = auth.uid() or receiver_id = auth.uid())
+  );
+$$;
+
+revoke all on function public.can_read_call(uuid) from public, anon;
+grant execute on function public.can_read_call(uuid) to authenticated;
+
+alter table public.utterances enable row level security;
+alter table public.call_summaries enable row level security;
+
+drop policy if exists "read utterances from your calls" on public.utterances;
+create policy "read utterances from your calls" on public.utterances
+  for select to authenticated
+  using (
+    (call_id is not null and public.can_read_call(call_id))
+    or (room_id is not null and public.is_room_participant(room_id, auth.uid()))
+  );
+
+-- You may only record your own speech, and only into a call you are in.
+drop policy if exists "record your own utterances" on public.utterances;
+create policy "record your own utterances" on public.utterances
+  for insert to authenticated
+  with check (
+    speaker_id = auth.uid()
+    and (
+      (call_id is not null and public.can_read_call(call_id))
+      or (room_id is not null and public.is_room_participant(room_id, auth.uid()))
+    )
+  );
+
+drop policy if exists "read summaries from your calls" on public.call_summaries;
+create policy "read summaries from your calls" on public.call_summaries
+  for select to authenticated
+  using (
+    (call_id is not null and public.can_read_call(call_id))
+    or (room_id is not null and public.is_room_participant(room_id, auth.uid()))
+  );
+
+-- Summaries are written by the server through the service-role client, which
+-- bypasses RLS. No insert or update policy exists here on purpose: a client
+-- must not be able to author a summary of its own conversation.

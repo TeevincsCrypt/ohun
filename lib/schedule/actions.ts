@@ -7,7 +7,7 @@ import { getUserEmails, AdminNotConfiguredError } from "@/lib/supabase/admin";
 import { sendEmail, isEmailConfigured } from "@/lib/email/client";
 import { scheduledCallEmail } from "@/lib/email/templates";
 import { startCall } from "@/lib/calls/actions";
-import type { ScheduledCall, ScheduledCallStatus, StartCallErrorCode } from "@/types";
+import type { ScheduledCall, ScheduledCallStatus } from "@/types";
 
 export interface ScheduleResult {
   scheduledId?: string;
@@ -176,7 +176,7 @@ export async function cancelScheduledCall(id: string): Promise<{ error?: string 
  */
 export async function startScheduledCall(
   id: string,
-): Promise<{ callId?: string; error?: string; code?: StartCallErrorCode }> {
+): Promise<{ callId?: string; error?: string }> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -197,8 +197,8 @@ export async function startScheduledCall(
 
   const otherId = booking.organizer_id === user.id ? booking.invitee_id : booking.organizer_id;
 
-  const { callId, error, code } = await startCall(otherId);
-  if (error || !callId) return { error: error ?? "Could not start the call.", code };
+  const { callId, error } = await startCall(otherId);
+  if (error || !callId) return { error: error ?? "Could not start the call." };
 
   await supabase
     .from("scheduled_calls")

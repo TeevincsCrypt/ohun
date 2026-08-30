@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { createAudioPeer, type AudioPeer, type PeerSignal } from "@/lib/webrtc/peer";
@@ -10,7 +10,9 @@ import {
 } from "@/lib/assemblyai/useTranscriptionSession";
 import { speak, localeFor } from "@/lib/audio/player";
 import { setCallStatus } from "./actions";
+import { recordUtterance } from "@/lib/summary/actions";
 import {
+  isCallLanguage,
   isTerminalStatus,
   type Call,
   type CallCaption,
@@ -146,18 +148,41 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
    * then the text is sent to them to be spoken on their device. Only the
    * translated text crosses the network — never synthesized audio.
    */
+  // Memoised even though the hook now reads it through a ref: an inline
+  // array here is what caused the session to restart on every render.
+  const callLanguages = useMemo(
+    () => [myLanguage, theirLanguage],
+    [myLanguage, theirLanguage],
+  );
+
   const transcription = useTranscriptionSession({
     // The peer's capture, shared rather than opened a second time — see
     // toggleMicrophone.
     stream: localStream,
     language: myLanguage,
+    // Both sides' languages, so the model can follow either and report
+    // which was actually spoken.
+    languages: callLanguages,
     targetLanguage: theirLanguage,
     speakLocally: false,
-    onTranslation: ({ originalText, translatedText }) => {
+    onTranslation: ({ originalText, translatedText, spokenLanguage }) => {
+      // The transcriber only ever sees this call's languages, so detection
+      // cannot return anything outside them — but narrow rather than assert,
+      // since LanguageCode also covers languages calls do not support.
+      const spoken = isCallLanguage(spokenLanguage) ? spokenLanguage : myLanguage;
+
+      // Stored so the call can be summarised afterwards. Deliberately not
+      // awaited: a transcript row failing to save must not interrupt a call.
+      void recordUtterance(
+        { callId: call.id },
+        { originalText, spokenLanguage: spoken, translations: { [theirLanguage]: translatedText } },
+      );
+
       const message: CaptionMessage = {
         id: `${selfId}-${Date.now()}`,
         originalText,
         translatedText,
+        spokenLanguage: spoken,
       };
 
       appendCaption({

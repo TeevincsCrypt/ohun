@@ -23,6 +23,23 @@ interface TranscriptionSessionState {
   translationError: string | null;
 }
 
+/**
+ * A zeroed buffer matching the shape of a real chunk.
+ *
+ * Cached by size: chunks arrive at a steady length many times a second, and
+ * allocating a new buffer for each one during a long mute is wasted work.
+ */
+const silenceBySize = new Map<number, ArrayBuffer>();
+
+function silenceLike(chunk: ArrayBuffer): ArrayBuffer {
+  const cached = silenceBySize.get(chunk.byteLength);
+  if (cached) return cached;
+
+  const silence = new ArrayBuffer(chunk.byteLength);
+  silenceBySize.set(chunk.byteLength, silence);
+  return silence;
+}
+
 const initialState: TranscriptionSessionState = {
   connectionState: "disconnected",
   micState: "disconnected",
@@ -38,11 +55,15 @@ export interface TranslationPayload {
   originalText: string;
   /** The same utterance rendered in the listener's language. */
   translatedText: string;
+  /** The language it was actually spoken in — detected, not assumed. */
+  spokenLanguage: LanguageCode;
 }
 
 interface SessionOptions {
-  /** The language this participant speaks. */
+  /** The language this participant is expected to speak. */
   language: LanguageCode;
+  /** Every language in the conversation, for detection and code-switching. */
+  languages?: LanguageCode[];
   /** The language their speech is translated into. */
   targetLanguage: LanguageCode;
   /**
@@ -61,8 +82,12 @@ interface SessionOptions {
    * cannot express — so the caller does that part itself.
    */
   translateManually?: boolean;
-  /** Receives each completed utterance when translateManually is set. */
-  onUtterance?: (text: string) => void | Promise<void>;
+  /**
+   * Receives each completed utterance when translateManually is set, along
+   * with the language it was actually spoken in — which is not always the
+   * one the speaker's profile claims.
+   */
+  onUtterance?: (text: string, spokenLanguage: LanguageCode) => void | Promise<void>;
   /**
    * A microphone stream the caller already holds, shared rather than
    * captured again. See MicRecorderConfig.stream — a call passes the one
@@ -78,6 +103,7 @@ interface SessionOptions {
  */
 export function useTranscriptionSession({
   language,
+  languages,
   targetLanguage,
   speakLocally = true,
   translateManually = false,
@@ -144,6 +170,24 @@ export function useTranscriptionSession({
   const streamRefOption = useRef(stream);
   streamRefOption.current = stream;
 
+  /**
+   * Held in a ref, not a dependency.
+   *
+   * `languages` is an array, so a caller writing it inline — which is the
+   * natural way to write it — hands this hook a new reference on every
+   * render. As a dependency of start() that makes start() a new function
+   * every render, and the effect that owns the session then tears it down
+   * and opens another. With a duration timer rendering once a second, that
+   * meant a fresh token, WebSocket and AudioContext every second for the
+   * whole call, which is enough churn to take the peer connection down
+   * with it.
+   *
+   * The set only matters when a session is opened, so reading it at that
+   * moment is both sufficient and immune to the caller's array identity.
+   */
+  const languagesRef = useRef(languages);
+  languagesRef.current = languages;
+
   const composeTranscript = useCallback(
     () => [priorTurnsRef.current, currentTurnTextRef.current].filter(Boolean).join(" "),
     [],
@@ -195,12 +239,12 @@ export function useTranscriptionSession({
    * indicator behaves the same in either mode.
    */
   const delegateUtterance = useCallback(
-    async (text: string, isCurrent: () => boolean) => {
+    async (text: string, spokenLanguage: LanguageCode, isCurrent: () => boolean) => {
       if (isCurrent()) {
         setState((current) => ({ ...current, isTranslating: true, translationError: null }));
       }
       try {
-        await onUtteranceRef.current?.(text);
+        await onUtteranceRef.current?.(text, spokenLanguage);
       } catch (error) {
         console.error("[ohun] utterance handler failed", error);
         if (!isCurrent()) return;
@@ -219,12 +263,12 @@ export function useTranscriptionSession({
 
   /** Translate one finished utterance, then speak it in the listener's language. */
   const translateAndSpeak = useCallback(
-    async (text: string, isCurrent: () => boolean) => {
+    async (text: string, spokenLanguage: LanguageCode, isCurrent: () => boolean) => {
       translationAbortRef.current?.abort();
       const controller = new AbortController();
       translationAbortRef.current = controller;
 
-      console.info("[ohun] translating", { from: language, to: targetLanguage, text });
+      console.info("[ohun] translating", { from: spokenLanguage, to: targetLanguage, text });
 
       if (isCurrent()) {
         setState((current) => ({ ...current, isTranslating: true, translationError: null }));
@@ -232,7 +276,7 @@ export function useTranscriptionSession({
 
       try {
         const { translatedText } = await translateText(
-          { text, from: language, to: targetLanguage },
+          { text, from: spokenLanguage, to: targetLanguage },
           { signal: controller.signal },
         );
 
@@ -246,7 +290,7 @@ export function useTranscriptionSession({
           isTranslating: false,
         }));
 
-        onTranslationRef.current?.({ originalText: text, translatedText });
+        onTranslationRef.current?.({ originalText: text, translatedText, spokenLanguage });
 
         if (speakLocally) {
           await speak({ text: translatedText, languageCode: localeFor(targetLanguage) });
@@ -263,7 +307,7 @@ export function useTranscriptionSession({
         }));
       }
     },
-    [language, targetLanguage, speakLocally],
+    [targetLanguage, speakLocally],
   );
 
   /** Re-speak the most recent translation. */
@@ -275,6 +319,17 @@ export function useTranscriptionSession({
 
   const start = useCallback(async () => {
     const generation = (generationRef.current += 1);
+
+    // Opening a session while one is already live means something upstream
+    // is restarting it. That is not fatal, but it costs a token, a
+    // handshake and an AudioContext each time, and at any frequency it will
+    // destabilise the call it is running inside — so say so rather than
+    // quietly absorbing it.
+    if (streamRef.current) {
+      console.warn(
+        "[ohun] transcription restarted while a session was already open — check the effect's dependencies",
+      );
+    }
     const isCurrent = () => mountedRef.current && generationRef.current === generation;
 
     setState({ ...initialState, connectionState: "connecting", micState: "connecting" });
@@ -293,6 +348,7 @@ export function useTranscriptionSession({
     try {
       const stream = await createTranscriptionStream({
         language,
+        languages: languagesRef.current,
         onOpen: () => {
           if (!isCurrent()) return;
           setState((current) => ({
@@ -301,7 +357,7 @@ export function useTranscriptionSession({
             micState: "listening",
           }));
         },
-        onTranscript: ({ turnOrder, text, isFinal }) => {
+        onTranscript: ({ turnOrder, text, isFinal, detectedLanguage }) => {
           // Whether `isFinal` (AssemblyAI's end_of_turn) ever becomes true is
           // the difference between "translation never fires" and "translation
           // fired and failed" — log it so the console distinguishes them.
@@ -324,10 +380,12 @@ export function useTranscriptionSession({
           // and produce translations of half-finished sentences.
           if (isFinal && text.trim() && !translatedTurnsRef.current.has(turnOrder)) {
             translatedTurnsRef.current.add(turnOrder);
+            // What was heard beats what the profile claims.
+            const spoken = detectedLanguage ?? language;
             if (translateManually) {
-              void delegateUtterance(text, isCurrent);
+              void delegateUtterance(text, spoken, isCurrent);
             } else {
-              void translateAndSpeak(text, isCurrent);
+              void translateAndSpeak(text, spoken, isCurrent);
             }
           }
         },
@@ -355,7 +413,21 @@ export function useTranscriptionSession({
       const recorder = createMicRecorder({
         stream: streamRefOption.current ?? undefined,
         onAudioChunk: (chunk) => {
-          if (suppressReasonsRef.current.size > 0) return;
+          // Suppressed audio is replaced with silence, not dropped.
+          //
+          // A streaming session expects a continuous feed. Sending nothing
+          // at all leaves a hole in it, and after a mute of any length the
+          // session never produces another turn — the speaker unmutes and
+          // is simply never transcribed again for the rest of the call.
+          //
+          // Silence keeps the stream unbroken while still guaranteeing
+          // nothing is transcribed, which is the whole point of suppressing
+          // it: a muted participant must not be captioned, and playback
+          // must not be transcribed back into the room.
+          if (suppressReasonsRef.current.size > 0) {
+            streamRef.current?.sendAudio(silenceLike(chunk));
+            return;
+          }
           streamRef.current?.sendAudio(chunk);
         },
         onError: (error) => {

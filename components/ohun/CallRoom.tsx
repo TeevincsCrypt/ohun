@@ -6,6 +6,7 @@ import { useCallSession } from "@/lib/calls/useCallSession";
 import { Avatar } from "./UserResult";
 import { AudioWaveform } from "./AudioWaveform";
 import { LiveCaptions } from "./LiveCaptions";
+import { CallSummaryPanel } from "./CallSummaryPanel";
 import { Logo } from "./Logo";
 import {
   LANGUAGE_FLAG,
@@ -32,10 +33,26 @@ function formatDuration(totalSeconds: number): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+/** Short enough to survive a narrow header without being dropped. */
+const STATUS_SHORT: Record<CallConnectionState, string> = {
+  idle: "Idle",
+  calling: "Calling",
+  ringing: "Ringing",
+  connecting: "Connecting",
+  connected: "Connected",
+  declined: "Declined",
+  ended: "Ended",
+  failed: "Failed",
+};
+
 /**
  * Connection quality, derived from state we actually have rather than
  * invented. Without a TURN relay a call really is more fragile, which is
  * worth surfacing as "limited" rather than claiming everything is fine.
+ *
+ * The label is never hidden. Bars alone say nothing — three grey ticks look
+ * identical whether a call is connecting, has dropped, or is fine without a
+ * relay — so a phone gets the short wording rather than no wording.
  */
 function ConnectionQuality({
   state,
@@ -47,7 +64,9 @@ function ConnectionQuality({
   const good = state === "connected" && hasTurn;
   const limited = state === "connected" && !hasTurn;
 
-  const label = good ? "Good connection" : limited ? "Limited relay" : STATUS_COPY[state];
+  const full = good ? "Good connection" : limited ? "Limited relay" : STATUS_COPY[state];
+  const short = good ? "Good" : limited ? "Limited" : STATUS_SHORT[state];
+
   const color = good
     ? "var(--accent)"
     : limited
@@ -59,24 +78,37 @@ function ConnectionQuality({
   // Three bars: all lit when relayed and connected, two when connected
   // without a relay, one otherwise.
   const lit = good ? 3 : limited ? 2 : 1;
+  const settling = state === "calling" || state === "ringing" || state === "connecting";
 
   return (
     <div
-      className="flex items-center gap-2.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-2 sm:px-3.5"
-      title={label}
+      role="status"
+      aria-label={full}
+      title={full}
+      className="flex shrink-0 items-center gap-2 rounded-full border px-2.5 py-1.5 sm:gap-2.5 sm:px-3.5 sm:py-2"
+      style={{
+        borderColor: good || limited || state === "failed" ? color : "var(--border)",
+        backgroundColor:
+          good || limited || state === "failed"
+            ? `color-mix(in srgb, ${color} 12%, transparent)`
+            : "var(--surface)",
+      }}
     >
-      <span className="hidden text-xs font-medium sm:inline" style={{ color }}>
-        {label}
+      <span
+        className={`text-[11px] font-medium sm:text-xs ${settling ? "animate-pulse" : ""}`}
+        style={{ color }}
+      >
+        {/* Short wording on a phone, full wording once there is room. */}
+        <span className="sm:hidden">{short}</span>
+        <span className="hidden sm:inline">{full}</span>
       </span>
+
       <span className="flex items-end gap-[2px]" aria-hidden>
         {[5, 8, 11].map((height, index) => (
           <span
             key={height}
             className="w-[3px] rounded-full transition-colors"
-            style={{
-              height,
-              backgroundColor: index < lit ? color : "var(--border)",
-            }}
+            style={{ height, backgroundColor: index < lit ? color : "var(--border)" }}
           />
         ))}
       </span>
@@ -245,17 +277,32 @@ export function CallRoom({
     attachRemoteAudio(audioRef.current);
   }, [attachRemoteAudio]);
 
-  // Once the call is over, return somewhere useful rather than stranding
-  // the user. A guest who joined by room link has no contacts, so People
-  // would be an empty room — send them to the landing page, which is also
-  // where signing up is offered.
+  // A guest who joined by room link has no contacts, so People would be an
+  // empty room — send them to the landing page, which is also where signing
+  // up is offered.
+  const exitTo = self.isGuest ? "/" : "/people";
+
+  // A declined call has nothing to summarise, so it still leaves on its own.
+  // An ended one stops and offers the recap instead of navigating away.
   useEffect(() => {
-    if (connectionState === "ended" || connectionState === "declined") {
-      const destination = self.isGuest ? "/" : "/people";
-      const timer = setTimeout(() => router.push(destination), 1800);
+    if (connectionState === "declined") {
+      const timer = setTimeout(() => router.push(exitTo), 1800);
       return () => clearTimeout(timer);
     }
-  }, [connectionState, router, self.isGuest]);
+  }, [connectionState, router, exitTo]);
+
+  if (connectionState === "ended") {
+    return (
+      <div className="theme-dark flex min-h-0 flex-1 flex-col justify-center bg-[var(--background)] px-4 py-10 text-[var(--foreground)]">
+        <CallSummaryPanel
+          callRef={{ callId: call.id }}
+          myLanguage={self.preferredLanguage}
+          onDone={() => router.push(exitTo)}
+          doneLabel={self.isGuest ? "Done" : "Back to People"}
+        />
+      </div>
+    );
+  }
 
   const connected = connectionState === "connected";
   const selfLanguage = getCallLanguage(self.preferredLanguage);
