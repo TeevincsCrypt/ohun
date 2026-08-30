@@ -29,6 +29,16 @@ interface TranscriptionSessionState {
  * Cached by size: chunks arrive at a steady length many times a second, and
  * allocating a new buffer for each one during a long mute is wasted work.
  */
+/**
+ * How many times a dropped session is reopened before giving up. Enough to
+ * ride out a timeout or a network blip; low enough that a configuration
+ * that can never connect surfaces as an error instead of retrying forever.
+ */
+const MAX_RECONNECT_ATTEMPTS = 5;
+
+/** Multiplied by the attempt number, so retries back off as they repeat. */
+const RECONNECT_BASE_DELAY_MS = 600;
+
 const silenceBySize = new Map<number, ArrayBuffer>();
 
 function silenceLike(chunk: ArrayBuffer): ArrayBuffer {
@@ -188,6 +198,18 @@ export function useTranscriptionSession({
   const languagesRef = useRef(languages);
   languagesRef.current = languages;
 
+  /**
+   * Whether a session is meant to be running.
+   *
+   * Set by start() and cleared by stop(), so an unexpected close can tell a
+   * session that dropped from one the caller deliberately ended.
+   */
+  const shouldRunRef = useRef(false);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Set by start() so a reconnect can call it without a circular reference. */
+  const startRef = useRef<(() => Promise<void>) | null>(null);
+
   const composeTranscript = useCallback(
     () => [priorTurnsRef.current, currentTurnTextRef.current].filter(Boolean).join(" "),
     [],
@@ -222,6 +244,14 @@ export function useTranscriptionSession({
 
   const stop = useCallback(async () => {
     generationRef.current += 1;
+    // Cleared first: a reconnect scheduled moments ago must not reopen a
+    // session the caller has just ended.
+    shouldRunRef.current = false;
+    reconnectAttemptsRef.current = 0;
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
     cancelSpeech();
     await teardown();
     if (mountedRef.current) {
@@ -332,8 +362,51 @@ export function useTranscriptionSession({
     }
     const isCurrent = () => mountedRef.current && generationRef.current === generation;
 
+    shouldRunRef.current = true;
+
     setState({ ...initialState, connectionState: "connecting", micState: "connecting" });
     resetTranscriptState();
+
+    /**
+     * Reopens a session that dropped while the call was still going.
+     *
+     * A streaming session can end for reasons that have nothing to do with
+     * the call: an inactivity timeout after a quiet stretch, a network
+     * blip, a server-side restart. Treating any of those as terminal meant
+     * one drop ended transcription for the rest of the call, which is what
+     * "it stopped working after I muted" actually was.
+     *
+     * Bounded, so a genuinely broken configuration surfaces as an error
+     * rather than retrying forever.
+     */
+    const reconnect = (why: string) => {
+      if (!isCurrent() || !shouldRunRef.current) return false;
+      if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) return false;
+
+      const attempt = (reconnectAttemptsRef.current += 1);
+      const delay = RECONNECT_BASE_DELAY_MS * attempt;
+      console.warn(`[ohun] transcription dropped (${why}); reconnecting in ${delay}ms`, {
+        attempt,
+      });
+
+      if (isCurrent()) {
+        setState((current) => ({
+          ...current,
+          connectionState: "connecting",
+          micState: "connecting",
+          error: null,
+        }));
+      }
+
+      void teardown();
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = setTimeout(() => {
+        // Only if nothing newer has taken over in the meantime.
+        if (mountedRef.current && shouldRunRef.current) void startRef.current?.();
+      }, delay);
+
+      return true;
+    };
 
     const fail = (message: string) => {
       if (!isCurrent()) return;
@@ -351,6 +424,9 @@ export function useTranscriptionSession({
         languages: languagesRef.current,
         onOpen: () => {
           if (!isCurrent()) return;
+          // A session that actually opened means the budget is spent on
+          // drops, not on a configuration that can never connect.
+          reconnectAttemptsRef.current = 0;
           setState((current) => ({
             ...current,
             connectionState: "connected",
@@ -391,11 +467,14 @@ export function useTranscriptionSession({
         },
         onError: (error) => {
           if (!isCurrent()) return;
+          if (reconnect(error.message)) return;
           fail(error.message);
           void teardown();
         },
         onClose: (code, reason) => {
+          // 1000 is a clean close, which only happens when we asked for one.
           if (!isCurrent() || code === 1000) return;
+          if (reconnect(`code ${code}${reason ? `: ${reason}` : ""}`)) return;
           fail(
             `The transcription connection was lost (code ${code}${reason ? `: ${reason}` : ""}).`,
           );
@@ -461,6 +540,12 @@ export function useTranscriptionSession({
     translateManually,
   ]);
 
+  // Published so a scheduled reconnect can reach the current start()
+  // without start() having to reference itself.
+  useEffect(() => {
+    startRef.current = start;
+  }, [start]);
+
   // Resolved after mount so server and first client render agree.
   const [canSpeakAloud, setCanSpeakAloud] = useState(false);
 
@@ -470,6 +555,11 @@ export function useTranscriptionSession({
     return () => {
       mountedRef.current = false;
       generationRef.current += 1;
+      shouldRunRef.current = false;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       cancelSpeech();
       void teardown();
     };

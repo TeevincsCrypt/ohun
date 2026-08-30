@@ -15,6 +15,16 @@ const STREAMING_SAMPLE_RATE = 16_000;
 const CONNECT_TIMEOUT_MS = 15_000;
 
 /**
+ * How long a session may go without speech before AssemblyAI ends it.
+ *
+ * The default is far shorter than a conversation. Silence is normal on a
+ * call — someone mutes, or simply listens for a while — and it is not a
+ * sign the session should be torn down. Set generously so a quiet stretch
+ * does not end transcription for the rest of the call.
+ */
+const INACTIVITY_TIMEOUT_SECONDS = 3600;
+
+/**
  * English has a dedicated model that is the fastest thing available;
  * everything else uses the multilingual one, which covers every language
  * calls support.
@@ -52,6 +62,7 @@ async function openSession(
     // cover DNS + TCP + TLS + the HTTP upgrade + the server's `Begin` frame,
     // which is easily over a second on a normal consumer connection or from
     // a region far from AssemblyAI's infrastructure. Give it real headroom.
+    inactivityTimeout: INACTIVITY_TIMEOUT_SECONDS,
     connectTimeout: CONNECT_TIMEOUT_MS,
     maxConnectionRetries: 3,
     connectionRetryDelay: 750,
