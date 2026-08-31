@@ -34,6 +34,19 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_BASE_DELAY_MS = 600;
 
 /**
+ * The one suppression reason a user sets deliberately, which therefore has
+ * no deadline — see setInputSuppressed.
+ */
+const MANUAL_SUPPRESS_REASON = "muted";
+
+/**
+ * Longest any automatic suppression may hold before it is released anyway.
+ * Comfortably longer than the longest utterance playback can produce, so it
+ * only ever fires on something that has genuinely gone wrong.
+ */
+const MAX_AUTOMATIC_SUPPRESSION_MS = 45_000;
+
+/**
  * A zeroed buffer matching the shape of a real chunk.
  *
  * Allocated fresh rather than cached per size: the SDK buffers audio and
@@ -163,6 +176,17 @@ export function useTranscriptionSession({
    *     participant is still captioned and translated to the room.
    */
   const suppressReasonsRef = useRef(new Set<string>());
+
+  /**
+   * Per-reason release timers — see setInputSuppressed.
+   *
+   * A last-resort backstop. Every automatic reason is supposed to be
+   * cleared by whatever set it, but a reason that is *not* cleared silences
+   * this participant for the rest of the call while the UI still reads
+   * "connected", which is the single worst failure this hook has. So no
+   * automatic reason is allowed to hold indefinitely.
+   */
+  const suppressTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   // Held in a ref so a caller passing an inline arrow does not retrigger the
   // media effect on every render and tear down a live transcription stream.
@@ -571,6 +595,11 @@ export function useTranscriptionSession({
   useEffect(() => {
     mountedRef.current = true;
     setCanSpeakAloud(isSpeechSupported());
+    // Captured here rather than read in the cleanup: both are stable Map and
+    // Set instances owned by this hook, and reading them now is what the
+    // exhaustive-deps rule asks for.
+    const suppressTimers = suppressTimersRef.current;
+    const suppressReasons = suppressReasonsRef.current;
     return () => {
       mountedRef.current = false;
       generationRef.current += 1;
@@ -580,14 +609,46 @@ export function useTranscriptionSession({
         reconnectTimerRef.current = null;
       }
       cancelSpeech();
+      suppressTimers.forEach((timer) => clearTimeout(timer));
+      suppressTimers.clear();
+      suppressReasons.clear();
       void teardown();
     };
   }, [teardown]);
 
   /** Gate transcription input under a named reason — see suppressReasonsRef. */
   const setInputSuppressed = useCallback((suppressed: boolean, reason: string) => {
-    if (suppressed) suppressReasonsRef.current.add(reason);
-    else suppressReasonsRef.current.delete(reason);
+    const timers = suppressTimersRef.current;
+    const existing = timers.get(reason);
+    if (existing) {
+      clearTimeout(existing);
+      timers.delete(reason);
+    }
+
+    if (!suppressed) {
+      suppressReasonsRef.current.delete(reason);
+      return;
+    }
+
+    suppressReasonsRef.current.add(reason);
+
+    // "muted" is the user's own standing decision and holds until they undo
+    // it. Every other reason is an automatic, short-lived hold placed by
+    // something that promised to release it, so it gets a deadline: if that
+    // release never arrives, transcription comes back by itself rather than
+    // staying dead in silence.
+    if (reason === MANUAL_SUPPRESS_REASON) return;
+
+    timers.set(
+      reason,
+      setTimeout(() => {
+        console.warn(
+          `[ohun] input suppression "${reason}" was never released; releasing it to keep transcription alive`,
+        );
+        suppressReasonsRef.current.delete(reason);
+        timers.delete(reason);
+      }, MAX_AUTOMATIC_SUPPRESSION_MS),
+    );
   }, []);
 
   return {

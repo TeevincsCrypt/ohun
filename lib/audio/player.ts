@@ -51,6 +51,28 @@ export function cancelSpeech(): void {
   window.speechSynthesis.cancel();
 }
 
+/**
+ * How long to wait for an utterance to *start* before writing it off.
+ *
+ * On mobile, speech is frequently refused when it is not tied closely
+ * enough to a user gesture. Most browsers report that as an `error` event,
+ * but not all of them do — some queue the utterance and simply never speak
+ * it, firing neither `start`, `end` nor `error`. Generous enough to cover a
+ * slow voice load, short enough that a refusal does not hold anything up.
+ */
+const START_GRACE_MS = 5_000;
+
+/** Hard ceiling on any single utterance, however long its text. */
+const MAX_UTTERANCE_MS = 30_000;
+
+/**
+ * A speaking budget for this text: a slow speaking rate, plus headroom.
+ * Only ever used to break a wait that is never going to end on its own.
+ */
+function budgetFor(text: string): number {
+  return Math.min(MAX_UTTERANCE_MS, 5_000 + text.length * 120);
+}
+
 export async function speak({ text, languageCode }: SpeechPlaybackOptions): Promise<void> {
   if (!isSpeechSupported() || !text.trim()) return;
 
@@ -64,10 +86,50 @@ export async function speak({ text, languageCode }: SpeechPlaybackOptions): Prom
   if (voice) utterance.voice = voice;
 
   await new Promise<void>((resolve) => {
-    // Resolve on either outcome — playback failing (no voice installed for
-    // this language, autoplay blocked) must not break the conversation flow.
-    utterance.onend = () => resolve();
-    utterance.onerror = () => resolve();
+    // This promise MUST settle. Callers hold the microphone away from
+    // transcription for its whole duration — synthesized speech comes out
+    // of the same speakers the microphone is listening to — so an utterance
+    // that never reports an outcome does not merely go unheard: it silences
+    // that participant's transcription for the rest of the call. That is a
+    // far worse failure than a line being cut off, so every path below
+    // resolves, and two timers guarantee one of them is reached.
+    let settled = false;
+    let started = false;
+    const guards: ReturnType<typeof setTimeout>[] = [];
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      guards.forEach(clearTimeout);
+      resolve();
+    };
+
+    // Playback failing — no voice installed for this language, or playback
+    // refused outright — must not break the conversation flow.
+    utterance.onend = finish;
+    utterance.onerror = finish;
+
+    const startGuard = setTimeout(() => {
+      if (started) return;
+      console.warn("[ohun] speech never started; releasing the microphone");
+      window.speechSynthesis.cancel();
+      finish();
+    }, START_GRACE_MS);
+    guards.push(startGuard);
+
+    utterance.onstart = () => {
+      started = true;
+      clearTimeout(startGuard);
+    };
+
+    guards.push(
+      setTimeout(() => {
+        console.warn("[ohun] speech never reported an end; releasing the microphone");
+        window.speechSynthesis.cancel();
+        finish();
+      }, budgetFor(text)),
+    );
+
     window.speechSynthesis.speak(utterance);
   });
 }
