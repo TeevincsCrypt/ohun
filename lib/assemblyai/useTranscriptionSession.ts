@@ -24,12 +24,6 @@ interface TranscriptionSessionState {
 }
 
 /**
- * A zeroed buffer matching the shape of a real chunk.
- *
- * Cached by size: chunks arrive at a steady length many times a second, and
- * allocating a new buffer for each one during a long mute is wasted work.
- */
-/**
  * How many times a dropped session is reopened before giving up. Enough to
  * ride out a timeout or a network blip; low enough that a configuration
  * that can never connect surfaces as an error instead of retrying forever.
@@ -39,15 +33,29 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 /** Multiplied by the attempt number, so retries back off as they repeat. */
 const RECONNECT_BASE_DELAY_MS = 600;
 
-const silenceBySize = new Map<number, ArrayBuffer>();
+/**
+ * The one suppression reason a user sets deliberately, which therefore has
+ * no deadline — see setInputSuppressed.
+ */
+const MANUAL_SUPPRESS_REASON = "muted";
 
+/**
+ * Longest any automatic suppression may hold before it is released anyway.
+ * Comfortably longer than the longest utterance playback can produce, so it
+ * only ever fires on something that has genuinely gone wrong.
+ */
+const MAX_AUTOMATIC_SUPPRESSION_MS = 45_000;
+
+/**
+ * A zeroed buffer matching the shape of a real chunk.
+ *
+ * Allocated fresh rather than cached per size: the SDK buffers audio and
+ * flushes it on a timer, so a chunk handed to sendAudio may still be held
+ * when the next one arrives. Reusing one instance is an aliasing hazard in
+ * exchange for saving a few kilobytes a second.
+ */
 function silenceLike(chunk: ArrayBuffer): ArrayBuffer {
-  const cached = silenceBySize.get(chunk.byteLength);
-  if (cached) return cached;
-
-  const silence = new ArrayBuffer(chunk.byteLength);
-  silenceBySize.set(chunk.byteLength, silence);
-  return silence;
+  return new ArrayBuffer(chunk.byteLength);
 }
 
 const initialState: TranscriptionSessionState = {
@@ -168,6 +176,17 @@ export function useTranscriptionSession({
    *     participant is still captioned and translated to the room.
    */
   const suppressReasonsRef = useRef(new Set<string>());
+
+  /**
+   * Per-reason release timers — see setInputSuppressed.
+   *
+   * A last-resort backstop. Every automatic reason is supposed to be
+   * cleared by whatever set it, but a reason that is *not* cleared silences
+   * this participant for the rest of the call while the UI still reads
+   * "connected", which is the single worst failure this hook has. So no
+   * automatic reason is allowed to hold indefinitely.
+   */
+  const suppressTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   // Held in a ref so a caller passing an inline arrow does not retrigger the
   // media effect on every render and tear down a live transcription stream.
@@ -472,8 +491,30 @@ export function useTranscriptionSession({
           void teardown();
         },
         onClose: (code, reason) => {
-          // 1000 is a clean close, which only happens when we asked for one.
-          if (!isCurrent() || code === 1000) return;
+          if (!isCurrent()) return;
+
+          // Which side ended the session is recorded in shouldRunRef. It is
+          // NOT readable from the close code.
+          //
+          // This used to return early whenever the code was 1000, on the
+          // assumption that a normal closure could only be one we asked for.
+          // It is not: AssemblyAI ends a session on its own too — an
+          // inactivity timeout, a session-length limit, a token expiring, a
+          // server-side rotation — by sending a Termination frame and
+          // closing normally, which reaches us as exactly the same 1000.
+          //
+          // So a session the server ended was swallowed in silence: no
+          // reconnect, no error, the indicator still reading "connected",
+          // and nothing transcribed for the rest of the call. A long mute is
+          // the likeliest way to reach it, because a muted track feeds the
+          // session an unbroken run of pure silence — which is why this
+          // presents as "mute broke transcription", and why fixes aimed at
+          // the audio path never came near it.
+          //
+          // stop() clears shouldRunRef before closing the socket, so a close
+          // we did ask for still lands here and is still ignored.
+          if (!shouldRunRef.current) return;
+
           if (reconnect(`code ${code}${reason ? `: ${reason}` : ""}`)) return;
           fail(
             `The transcription connection was lost (code ${code}${reason ? `: ${reason}` : ""}).`,
@@ -492,17 +533,19 @@ export function useTranscriptionSession({
       const recorder = createMicRecorder({
         stream: streamRefOption.current ?? undefined,
         onAudioChunk: (chunk) => {
-          // Suppressed audio is replaced with silence, not dropped.
+          // Suppressed audio is replaced with silence rather than dropped,
+          // so the session keeps receiving a continuous feed.
           //
-          // A streaming session expects a continuous feed. Sending nothing
-          // at all leaves a hole in it, and after a mute of any length the
-          // session never produces another turn — the speaker unmutes and
-          // is simply never transcribed again for the rest of the call.
+          // This matters for the "playback" reason, where the microphone is
+          // live and genuinely picking up our own synthesized speech. It is
+          // close to a no-op for "muted": a disabled MediaStreamTrack still
+          // drives the worklet, it just drives it with zeros, so the chunks
+          // arriving here are already silent. (Measured, not assumed —
+          // Chromium posts chunks at the same rate either way.)
           //
-          // Silence keeps the stream unbroken while still guaranteeing
-          // nothing is transcribed, which is the whole point of suppressing
-          // it: a muted participant must not be captioned, and playback
-          // must not be transcribed back into the room.
+          // Either way the guarantee is the one that matters: a muted
+          // participant must not be captioned, and playback must not be
+          // transcribed back into the room.
           if (suppressReasonsRef.current.size > 0) {
             streamRef.current?.sendAudio(silenceLike(chunk));
             return;
@@ -552,6 +595,11 @@ export function useTranscriptionSession({
   useEffect(() => {
     mountedRef.current = true;
     setCanSpeakAloud(isSpeechSupported());
+    // Captured here rather than read in the cleanup: both are stable Map and
+    // Set instances owned by this hook, and reading them now is what the
+    // exhaustive-deps rule asks for.
+    const suppressTimers = suppressTimersRef.current;
+    const suppressReasons = suppressReasonsRef.current;
     return () => {
       mountedRef.current = false;
       generationRef.current += 1;
@@ -561,14 +609,46 @@ export function useTranscriptionSession({
         reconnectTimerRef.current = null;
       }
       cancelSpeech();
+      suppressTimers.forEach((timer) => clearTimeout(timer));
+      suppressTimers.clear();
+      suppressReasons.clear();
       void teardown();
     };
   }, [teardown]);
 
   /** Gate transcription input under a named reason — see suppressReasonsRef. */
   const setInputSuppressed = useCallback((suppressed: boolean, reason: string) => {
-    if (suppressed) suppressReasonsRef.current.add(reason);
-    else suppressReasonsRef.current.delete(reason);
+    const timers = suppressTimersRef.current;
+    const existing = timers.get(reason);
+    if (existing) {
+      clearTimeout(existing);
+      timers.delete(reason);
+    }
+
+    if (!suppressed) {
+      suppressReasonsRef.current.delete(reason);
+      return;
+    }
+
+    suppressReasonsRef.current.add(reason);
+
+    // "muted" is the user's own standing decision and holds until they undo
+    // it. Every other reason is an automatic, short-lived hold placed by
+    // something that promised to release it, so it gets a deadline: if that
+    // release never arrives, transcription comes back by itself rather than
+    // staying dead in silence.
+    if (reason === MANUAL_SUPPRESS_REASON) return;
+
+    timers.set(
+      reason,
+      setTimeout(() => {
+        console.warn(
+          `[ohun] input suppression "${reason}" was never released; releasing it to keep transcription alive`,
+        );
+        suppressReasonsRef.current.delete(reason);
+        timers.delete(reason);
+      }, MAX_AUTOMATIC_SUPPRESSION_MS),
+    );
   }, []);
 
   return {

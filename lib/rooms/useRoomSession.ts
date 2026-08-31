@@ -124,9 +124,11 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
    * or a click landing mid-utterance, should not cut a line off — it should
    * simply play after.
    */
-  const playAudio = useCallback((text: string, language: CallLanguageCode) => {
-    speechRef.current?.enqueue(text, language);
-  }, []);
+  const playAudio = useCallback(
+    (text: string, language: CallLanguageCode): Promise<void> =>
+      speechRef.current?.enqueue(text, language) ?? Promise.resolve(),
+    [],
+  );
 
   /** Queues an incoming translation to be spoken in my language. */
   const speakIncoming = useCallback(

@@ -1,6 +1,6 @@
 "use client";
 
-import { speak, cancelSpeech } from "./player";
+import { speak, cancelSpeech, localeFor } from "./player";
 import type { LanguageCode } from "@/types";
 
 /**
@@ -20,6 +20,12 @@ interface QueueItem {
   languageCode: LanguageCode;
   /** Dropped if it has been waiting too long to still be worth hearing. */
   queuedAt: number;
+  /**
+   * Settles this item's enqueue() promise. Called on every exit — spoken,
+   * failed, dropped as stale, or cleared — because a caller awaiting a line
+   * that gets dropped would otherwise wait forever.
+   */
+  done: () => void;
 }
 
 /**
@@ -53,14 +59,25 @@ export class SpeechQueue {
     this.onSpeakingChange?.(next);
   }
 
-  /** Adds a line to be spoken once everything ahead of it has finished. */
-  enqueue(text: string, languageCode: LanguageCode): void {
-    if (this.stopped || !text.trim()) return;
+  /**
+   * Adds a line to be spoken once everything ahead of it has finished.
+   *
+   * The returned promise settles when this line is done with — spoken,
+   * failed, or dropped — which is what lets a play button show a spinner
+   * that means something rather than flashing once and clearing.
+   */
+  enqueue(text: string, languageCode: LanguageCode): Promise<void> {
+    if (this.stopped || !text.trim()) return Promise.resolve();
 
-    this.items.push({ text, languageCode, queuedAt: Date.now() });
-    if (this.items.length > MAX_QUEUE) this.items.splice(0, this.items.length - MAX_QUEUE);
+    return new Promise<void>((resolve) => {
+      this.items.push({ text, languageCode, queuedAt: Date.now(), done: resolve });
+      if (this.items.length > MAX_QUEUE) {
+        // Settle what is dropped; nothing may be discarded unresolved.
+        this.items.splice(0, this.items.length - MAX_QUEUE).forEach((item) => item.done());
+      }
 
-    void this.drain();
+      void this.drain();
+    });
   }
 
   private async drain(): Promise<void> {
@@ -71,12 +88,21 @@ export class SpeechQueue {
       while (this.items.length > 0 && !this.stopped) {
         const item = this.items.shift();
         if (!item) break;
-        if (Date.now() - item.queuedAt > MAX_WAIT_MS) continue;
+        if (Date.now() - item.queuedAt > MAX_WAIT_MS) {
+          item.done();
+          continue;
+        }
 
         try {
-          await speak({ text: item.text, languageCode: item.languageCode });
+          // localeFor here rather than at each call site, so every caller
+          // gets the same voice selection: speak() matches on a BCP-47 tag,
+          // and a bare "en" picks whichever English voice happens to sort
+          // first rather than the intended en-US.
+          await speak({ text: item.text, languageCode: localeFor(item.languageCode) });
         } catch {
           // A failed utterance must not stall everything behind it.
+        } finally {
+          item.done();
         }
       }
     } finally {
@@ -91,7 +117,10 @@ export class SpeechQueue {
 
   /** Drops anything pending and silences the current utterance. */
   clear(): void {
+    const dropped = this.items;
     this.items = [];
+    dropped.forEach((item) => item.done());
+    // Releases the utterance in flight, whose own done() runs in drain().
     cancelSpeech();
   }
 

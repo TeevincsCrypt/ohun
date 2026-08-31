@@ -31,7 +31,7 @@ function LanguageLine({
   tone: "original" | "mine" | "other";
   note?: string;
   /** Speaks this line aloud, in `code`'s language, on demand. */
-  onPlay: (text: string, language: CallLanguageCode) => void;
+  onPlay: (text: string, language: CallLanguageCode) => Promise<void> | void;
 }) {
   if (!text) return null;
 
@@ -97,7 +97,7 @@ export function RoomCaptions({
   selfId: string;
   myLanguage: CallLanguageCode;
   /** Speaks one line aloud in a given language, on demand. */
-  onPlay: (text: string, language: CallLanguageCode) => void;
+  onPlay: (text: string, language: CallLanguageCode) => Promise<void> | void;
 }) {
   const endRef = useRef<HTMLDivElement | null>(null);
 
