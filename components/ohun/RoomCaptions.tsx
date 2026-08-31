@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { Avatar } from "./UserResult";
+import { PlayLineButton } from "./PlayLineButton";
 import {
   CALL_LANGUAGE_CODES,
   LANGUAGE_FLAG,
@@ -23,11 +24,14 @@ function LanguageLine({
   text,
   tone,
   note,
+  onPlay,
 }: {
   code: CallLanguageCode | undefined;
   text: string;
   tone: "original" | "mine" | "other";
   note?: string;
+  /** Speaks this line aloud, in `code`'s language, on demand. */
+  onPlay: (text: string, language: CallLanguageCode) => void;
 }) {
   if (!text) return null;
 
@@ -61,6 +65,11 @@ function LanguageLine({
             ◂ heard
           </span>
         )}
+        {code && (
+          <span className="ml-1.5 inline-block align-middle">
+            <PlayLineButton text={text} onPlay={() => onPlay(text, code)} />
+          </span>
+        )}
       </span>
     </p>
   );
@@ -79,6 +88,7 @@ export function RoomCaptions({
   room,
   selfId,
   myLanguage,
+  onPlay,
 }: {
   captions: RoomCaption[];
   liveTranscript: string;
@@ -86,6 +96,8 @@ export function RoomCaptions({
   room: Room;
   selfId: string;
   myLanguage: CallLanguageCode;
+  /** Speaks one line aloud in a given language, on demand. */
+  onPlay: (text: string, language: CallLanguageCode) => void;
 }) {
   const endRef = useRef<HTMLDivElement | null>(null);
 
@@ -156,6 +168,7 @@ export function RoomCaptions({
                   text={caption.originalText}
                   tone="original"
                   note="spoken"
+                  onPlay={onPlay}
                 />
 
                 {translations.map((code) => (
@@ -165,6 +178,7 @@ export function RoomCaptions({
                     text={caption.byLanguage[code] ?? ""}
                     tone={code === myLanguage ? "mine" : "other"}
                     note={code === myLanguage ? "you hear" : undefined}
+                    onPlay={onPlay}
                   />
                 ))}
               </div>

@@ -271,6 +271,7 @@ export function CallRoom({
     toggleMicrophone,
     toggleSpeaker,
     endCall,
+    playAudio,
   } = useCallSession({ call, selfId: self.id });
 
   useEffect(() => {
@@ -621,6 +622,7 @@ export function CallRoom({
             isTranslating={isTranslating}
             self={self}
             other={other}
+            onPlay={playAudio}
           />
         </aside>
       </main>

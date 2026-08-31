@@ -17,6 +17,7 @@ import {
   type Call,
   type CallCaption,
   type CallConnectionState,
+  type CallLanguageCode,
   type CallStatus,
 } from "@/types";
 
@@ -108,29 +109,42 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
    * touches the microphone: it has to keep feeding transcription, and
    * muting it would silence the local user mid-conversation.
    */
+  /**
+   * Speaks text aloud in a given language, ducking and suppressing input
+   * exactly as the automatic incoming-translation path does — see
+   * speakIncoming below, which is now the myLanguage-specific case of this.
+   *
+   * Also used directly for on-demand replay: a caption line clicked in any
+   * language routes through here rather than calling speak() on its own,
+   * because bypassing the suppression is exactly what caused transcription
+   * to hear and re-translate its own output. Manual playback is no
+   * exception to that — it comes out of the same speakers.
+   */
+  const playAudio = useCallback(async (text: string, language: CallLanguageCode) => {
+    const element = remoteAudioRef.current;
+    const wasMuted = element?.muted ?? false;
+    if (element) element.muted = true;
+
+    suppressInputRef.current?.(true, "playback");
+
+    try {
+      await speak({ text, languageCode: localeFor(language) });
+    } finally {
+      suppressInputRef.current?.(false, "playback");
+      // Never un-mute something the user muted themselves.
+      if (element) element.muted = wasMuted || !speakerEnabledRef.current;
+    }
+  }, []);
+
+  /**
+   * Mutes the *remote* <audio> element for the duration so the synthesized
+   * voice is intelligible over their raw speech. This deliberately never
+   * touches the microphone: it has to keep feeding transcription, and
+   * muting it would silence the local user mid-conversation.
+   */
   const speakIncoming = useCallback(
-    async (text: string) => {
-      const element = remoteAudioRef.current;
-      const wasMuted = element?.muted ?? false;
-      if (element) element.muted = true;
-
-      // Stop feeding transcription for the duration. Synthesized speech
-      // comes out of the same speakers the microphone is listening to, and
-      // browser echo cancellation covers the WebRTC render path rather than
-      // speechSynthesis — so without this the app transcribes its own
-      // output, translates it, and sends it back, and the two sides end up
-      // talking to each other unprompted.
-      suppressInputRef.current?.(true, "playback");
-
-      try {
-        await speak({ text, languageCode: localeFor(myLanguage) });
-      } finally {
-        suppressInputRef.current?.(false, "playback");
-        // Never un-mute something the user muted themselves.
-        if (element) element.muted = wasMuted || !speakerEnabledRef.current;
-      }
-    },
-    [myLanguage],
+    (text: string) => playAudio(text, myLanguage),
+    [playAudio, myLanguage],
   );
 
   const teardown = useCallback(() => {
@@ -466,5 +480,7 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
     toggleMicrophone,
     toggleSpeaker,
     endCall,
+    /** Speak any caption line aloud on demand, in whichever language it is in. */
+    playAudio,
   };
 }

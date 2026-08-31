@@ -27,3 +27,4 @@ export * from "./RoomCaptions";
 export * from "./AddParticipantDialog";
 export * from "./RoomInviteWatcher";
 export * from "./CallSummaryPanel";
+export * from "./PlayLineButton";
