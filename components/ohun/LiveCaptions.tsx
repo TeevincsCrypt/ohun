@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "./UserResult";
-import { LANGUAGE_FLAG, type CallCaption, type Profile } from "@/types";
+import { PlayLineButton } from "./PlayLineButton";
+import { LANGUAGE_FLAG, type CallCaption, type CallLanguageCode, type Profile } from "@/types";
 
 type Filter = "both" | "original" | "translated";
 
@@ -23,12 +24,15 @@ export function LiveCaptions({
   isTranslating,
   self,
   other,
+  onPlay,
 }: {
   captions: CallCaption[];
   liveTranscript: string;
   isTranslating: boolean;
   self: Profile;
   other: Profile;
+  /** Speaks one line aloud in a given language, on demand. */
+  onPlay: (text: string, language: CallLanguageCode) => void;
 }) {
   const endRef = useRef<HTMLDivElement | null>(null);
   const [filter, setFilter] = useState<Filter>("both");
@@ -110,6 +114,11 @@ export function LiveCaptions({
 
         {captions.map((caption) => {
           const speaker = caption.fromSelf ? self : other;
+          const listener = caption.fromSelf ? other : self;
+          // originalText is always in the speaker's language; translatedText
+          // is always in whichever side did not speak it.
+          const spokenLanguage = speaker.preferredLanguage as CallLanguageCode;
+          const heardLanguage = listener.preferredLanguage as CallLanguageCode;
           const color = caption.fromSelf ? "var(--accent)" : "var(--peer)";
           const time = new Date(caption.at).toLocaleTimeString(undefined, {
             hour: "2-digit",
@@ -131,16 +140,28 @@ export function LiveCaptions({
                 </p>
 
                 {filter !== "translated" && (
-                  <p className="mt-0.5 text-sm leading-snug text-[var(--foreground)]">
-                    {caption.originalText}
+                  <p className="mt-0.5 flex items-start gap-1.5 text-sm leading-snug text-[var(--foreground)]">
+                    <span className="min-w-0 flex-1">{caption.originalText}</span>
+                    <span className="mt-[3px]">
+                      <PlayLineButton
+                        text={caption.originalText}
+                        onPlay={() => onPlay(caption.originalText, spokenLanguage)}
+                      />
+                    </span>
                   </p>
                 )}
 
                 {/* For their speech this is what was spoken aloud here; for
                     your own it is what they heard. */}
                 {filter !== "original" && (
-                  <p className="mt-1 text-sm leading-snug" style={{ color }}>
-                    {caption.translatedText}
+                  <p className="mt-1 flex items-start gap-1.5 text-sm leading-snug" style={{ color }}>
+                    <span className="min-w-0 flex-1">{caption.translatedText}</span>
+                    <span className="mt-[3px]">
+                      <PlayLineButton
+                        text={caption.translatedText}
+                        onPlay={() => onPlay(caption.translatedText, heardLanguage)}
+                      />
+                    </span>
                   </p>
                 )}
               </div>

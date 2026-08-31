@@ -117,6 +117,7 @@ export function RoomCall({ room: initialRoom, self }: { room: Room; self: Profil
     toggleMicrophone,
     toggleSpeaker,
     leave,
+    playAudio,
   } = useRoomSession({ room: initialRoom, selfId: self.id });
 
   const seated = useMemo(() => activeParticipants(room), [room]);
@@ -312,6 +313,7 @@ export function RoomCall({ room: initialRoom, self }: { room: Room; self: Profil
             room={room}
             selfId={self.id}
             myLanguage={myLanguage}
+            onPlay={playAudio}
           />
         </aside>
       </main>

@@ -111,12 +111,27 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
     setCaptions((current) => [...current, caption].slice(-MAX_CAPTIONS));
   }, []);
 
+  /**
+   * Speaks text aloud in a given language, queued through the same
+   * SpeechQueue as live incoming translations — which is what gives it
+   * ducking and input-suppression, exactly as automatic playback gets. A
+   * caption line played on demand is not exempt from that: it comes out of
+   * the same speakers, and bypassing the queue is exactly what let the room
+   * transcribe and re-translate its own output before this queue existed.
+   *
+   * Queued rather than interrupting whatever is already playing, which
+   * matches the queue's own reasoning: several people finishing at once,
+   * or a click landing mid-utterance, should not cut a line off — it should
+   * simply play after.
+   */
+  const playAudio = useCallback((text: string, language: CallLanguageCode) => {
+    speechRef.current?.enqueue(text, language);
+  }, []);
+
   /** Queues an incoming translation to be spoken in my language. */
   const speakIncoming = useCallback(
-    (text: string) => {
-      speechRef.current?.enqueue(text, myLanguage);
-    },
-    [myLanguage],
+    (text: string) => playAudio(text, myLanguage),
+    [playAudio, myLanguage],
   );
 
   /**
@@ -421,5 +436,7 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
     toggleMicrophone,
     toggleSpeaker,
     leave,
+    /** Speak any caption line aloud on demand, in whichever language it is in. */
+    playAudio,
   };
 }
