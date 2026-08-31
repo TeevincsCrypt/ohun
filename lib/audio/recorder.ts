@@ -69,6 +69,13 @@ export function createMicRecorder(config: MicRecorderConfig): MicRecorder {
   /** True when the stream came from the caller, so teardown must not stop it. */
   let borrowedStream = false;
   let resampler: LinearResampler | null = null;
+  /**
+   * Set by stop(). The resume-wait below can run for several seconds, and
+   * start() keeps using the audioContext/workletNode/stream closure
+   * variables directly afterward — if stop() ran during that wait, those
+   * are already null, and continuing would throw rather than fail quietly.
+   */
+  let stopped = false;
 
   async function start() {
     if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia) {
@@ -102,9 +109,97 @@ export function createMicRecorder(config: MicRecorderConfig): MicRecorder {
         );
       }
 
+      // An AudioContext can be constructed in "suspended" state and never
+      // process a sample until explicitly resumed — this is separate from,
+      // and not covered by, the getUserMedia permission that already
+      // succeeded above. WebRTC's own audio never touches this context, so
+      // the gap is invisible on the call itself: the other side hears you
+      // fine while this graph — and therefore transcription — produces
+      // nothing, silently, forever.
+      //
+      // Browsers are more willing to grant resume() the closer it runs to a
+      // real user gesture. The caller who placed the call and then waited
+      // out a long ring before the context is even created is in exactly
+      // the worst position for this; the person answering, whose own
+      // gesture (the Accept tap) lands moments before their context is
+      // built, is in the best one — which is why this bug reads as
+      // "transcription works for the person I called, not for me."
+      await audioContext.resume().catch(() => {
+        // Ignored here; the fallback below is what actually recovers this.
+      });
+
+      if (audioContext.state !== "running") {
+        await new Promise<void>((resolve) => {
+          const ctx = audioContext;
+          if (!ctx) {
+            resolve();
+            return;
+          }
+
+          let settled = false;
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            document.removeEventListener("pointerdown", tryResume, true);
+            document.removeEventListener("keydown", tryResume, true);
+            document.removeEventListener("touchstart", tryResume, true);
+            resolve();
+          };
+
+          const tryResume = () => {
+            void ctx.resume().finally(finish);
+          };
+
+          // The very next tap anywhere — mute, speaker, a caption, the page
+          // itself — is a fresh gesture and resumes it. Capture phase, so
+          // this fires before whatever the tap was actually for.
+          document.addEventListener("pointerdown", tryResume, true);
+          document.addEventListener("keydown", tryResume, true);
+          document.addEventListener("touchstart", tryResume, true);
+
+          // Some browsers grant this without a further gesture at all once
+          // the page has been interacted with even once (the original
+          // "Call" tap qualifies) — recheck on a short timer rather than
+          // waiting indefinitely on a tap that may never come if that is
+          // the case.
+          const poll = setInterval(() => {
+            if (ctx.state === "running") {
+              clearInterval(poll);
+              finish();
+            }
+          }, 250);
+
+          // Caps how long a genuinely silent start can go before recording
+          // begins anyway — better to try and fail than to block forever.
+          setTimeout(() => {
+            clearInterval(poll);
+            finish();
+          }, 8000);
+        });
+
+        // The call may have ended while this was waiting. Nothing has been
+        // built yet at this point — stop() already closed the context — so
+        // there is nothing to undo, just nowhere further to go.
+        if (stopped) return;
+      }
+
+      if (audioContext.state !== "running") {
+        // Recording still proceeds — better a context that starts working
+        // the moment it does resume than no recorder at all — but this is
+        // the exact condition that makes transcription silently produce
+        // nothing, so it needs to be visible rather than swallowed.
+        console.warn(
+          `[ohun] AudioContext did not resume before starting (state: ${audioContext.state}). ` +
+            "Transcription will stay silent until it does.",
+        );
+      }
+
       resampler = new LinearResampler(audioContext.sampleRate, TARGET_SAMPLE_RATE);
 
       await audioContext.audioWorklet.addModule(WORKLET_URL);
+      // Same check, same reason, after the other await in this setup.
+      if (stopped) return;
+
       sourceNode = audioContext.createMediaStreamSource(stream);
       workletNode = new AudioWorkletNode(audioContext, WORKLET_NAME, {
         processorOptions: { chunkMs: CHUNK_MS },
@@ -131,6 +226,7 @@ export function createMicRecorder(config: MicRecorderConfig): MicRecorder {
   }
 
   function stop() {
+    stopped = true;
     if (workletNode) {
       workletNode.port.onmessage = null;
       workletNode.disconnect();
