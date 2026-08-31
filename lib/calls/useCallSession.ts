@@ -8,7 +8,7 @@ import {
   useTranscriptionSession,
   type TranslationPayload,
 } from "@/lib/assemblyai/useTranscriptionSession";
-import { speak, localeFor } from "@/lib/audio/player";
+import { SpeechQueue } from "@/lib/audio/queue";
 import { setCallStatus } from "./actions";
 import { recordUtterance } from "@/lib/summary/actions";
 import {
@@ -91,6 +91,8 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
   const teardownRef = useRef(false);
   /** Set once the transcription hook below exists — see speakIncoming. */
   const suppressInputRef = useRef<((suppressed: boolean, reason: string) => void) | null>(null);
+  /** Serialises everything spoken aloud here — see the effect below. */
+  const speechRef = useRef<SpeechQueue | null>(null);
 
   /** Attach the remote stream to the <audio> element the room renders. */
   const attachRemoteAudio = useCallback((element: HTMLAudioElement | null) => {
@@ -102,46 +104,61 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
   }, []);
 
   /**
-   * Speaks a translation that arrived from the other participant.
+   * Owns everything spoken aloud on this device, and the ducking that goes
+   * with it, for the life of the session.
    *
-   * Mutes the *remote* <audio> element for the duration so the synthesized
-   * voice is intelligible over their raw speech. This deliberately never
-   * touches the microphone: it has to keep feeding transcription, and
-   * muting it would silence the local user mid-conversation.
-   */
-  /**
-   * Speaks text aloud in a given language, ducking and suppressing input
-   * exactly as the automatic incoming-translation path does — see
-   * speakIncoming below, which is now the myLanguage-specific case of this.
+   * A queue rather than each caller speaking for itself. The previous
+   * version ducked and un-ducked inside playAudio, snapshotting
+   * element.muted on the way in and restoring it on the way out — which is
+   * only correct while exactly one playback is ever in flight. Two
+   * overlapping lines (two captions landing together, or a caption line
+   * clicked mid-utterance, both routine while you are muted and listening)
+   * made the second snapshot the *first* one's ducking, so the remote audio
+   * was restored to muted and stayed that way for the rest of the call. The
+   * same overlap released the "playback" input suppression while the second
+   * line was still audible, feeding our own synthesized speech back into
+   * transcription.
    *
-   * Also used directly for on-demand replay: a caption line clicked in any
-   * language routes through here rather than calling speak() on its own,
-   * because bypassing the suppression is exactly what caused transcription
-   * to hear and re-translate its own output. Manual playback is no
-   * exception to that — it comes out of the same speakers.
+   * With one queue there is a single speaking/not-speaking transition to
+   * react to, and the element's resting state is derived from the user's
+   * own speaker choice rather than re-read from the element.
    */
-  const playAudio = useCallback(async (text: string, language: CallLanguageCode) => {
-    const element = remoteAudioRef.current;
-    const wasMuted = element?.muted ?? false;
-    if (element) element.muted = true;
+  useEffect(() => {
+    const queue = new SpeechQueue({
+      onSpeakingChange: (speaking) => {
+        // Stop feeding transcription: this comes out of the same speakers
+        // the microphone is listening to, and browser echo cancellation
+        // covers the WebRTC render path, not speechSynthesis.
+        suppressInputRef.current?.(speaking, "playback");
+        // Duck their raw voice so the translation stays intelligible over
+        // it, then hand the element back to whatever the user chose.
+        const element = remoteAudioRef.current;
+        if (element) element.muted = speaking || !speakerEnabledRef.current;
+      },
+    });
+    speechRef.current = queue;
 
-    suppressInputRef.current?.(true, "playback");
-
-    try {
-      await speak({ text, languageCode: localeFor(language) });
-    } finally {
-      suppressInputRef.current?.(false, "playback");
-      // Never un-mute something the user muted themselves.
-      if (element) element.muted = wasMuted || !speakerEnabledRef.current;
-    }
+    return () => {
+      queue.stop();
+      speechRef.current = null;
+    };
   }, []);
 
   /**
-   * Mutes the *remote* <audio> element for the duration so the synthesized
-   * voice is intelligible over their raw speech. This deliberately never
-   * touches the microphone: it has to keep feeding transcription, and
-   * muting it would silence the local user mid-conversation.
+   * Speaks text aloud in a given language.
+   *
+   * Also used for on-demand replay: a caption line clicked in any language
+   * routes through here rather than calling speak() on its own, because
+   * bypassing the queue means bypassing the suppression — which is exactly
+   * what let transcription hear and re-translate our own output.
    */
+  const playAudio = useCallback(
+    (text: string, language: CallLanguageCode): Promise<void> =>
+      speechRef.current?.enqueue(text, language) ?? Promise.resolve(),
+    [],
+  );
+
+  /** Queues an incoming translation to be spoken in my language. */
   const speakIncoming = useCallback(
     (text: string) => playAudio(text, myLanguage),
     [playAudio, myLanguage],
@@ -149,6 +166,8 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
 
   const teardown = useCallback(() => {
     teardownRef.current = true;
+    // Nothing queued is worth hearing once the call is over.
+    speechRef.current?.clear();
     peerRef.current?.close();
     peerRef.current = null;
     if (channelRef.current) {
@@ -455,8 +474,10 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
     const element = remoteAudioRef.current;
     if (!element) return;
     const next = !speakerEnabled;
-    element.muted = !next;
     speakerEnabledRef.current = next;
+    // Turning the speaker back on mid-playback must not lift the ducking a
+    // line still being spoken depends on; the queue restores it when done.
+    element.muted = !next || (speechRef.current?.isSpeaking ?? false);
     setSpeakerEnabled(next);
   }, [speakerEnabled]);
 

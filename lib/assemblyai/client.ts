@@ -57,12 +57,18 @@ async function openSession(
     formatTurns: true,
     speechModel,
     ...(withLanguageOptions ? { languageCodes: languages, languageDetection: true } : {}),
+    inactivityTimeout: INACTIVITY_TIMEOUT_SECONDS,
+    // Asks the server for periodic Heartbeat frames. A call spends long
+    // stretches sending silence — someone mutes, or simply listens — and an
+    // idle WebSocket is exactly what an intermediate proxy or load balancer
+    // reaps. The heartbeat keeps the socket demonstrably alive across those
+    // stretches instead of letting it be closed underneath us.
+    sessionHeartbeat: true,
     // The SDK defaults to a 1000ms handshake budget, which is sized for a
     // server sitting close to AssemblyAI. From a browser that budget has to
     // cover DNS + TCP + TLS + the HTTP upgrade + the server's `Begin` frame,
     // which is easily over a second on a normal consumer connection or from
     // a region far from AssemblyAI's infrastructure. Give it real headroom.
-    inactivityTimeout: INACTIVITY_TIMEOUT_SECONDS,
     connectTimeout: CONNECT_TIMEOUT_MS,
     maxConnectionRetries: 3,
     connectionRetryDelay: 750,
@@ -101,9 +107,10 @@ async function openSession(
   });
 
   transcriber.on("close", (code: number, reason: string) => {
-    if (code !== 1000) {
-      console.error("[assemblyai] socket closed:", { code, reason, speechModel, hasOpened });
-    }
+    // Logged at every code, 1000 included: a session the server ended
+    // gracefully closes with 1000 just as ours does, and that case is
+    // precisely the one worth seeing in a console.
+    console.info("[assemblyai] socket closed:", { code, reason, speechModel, hasOpened });
     if (!hasOpened) return;
     config.onClose?.(code, reason);
   });

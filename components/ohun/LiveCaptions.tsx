@@ -32,7 +32,7 @@ export function LiveCaptions({
   self: Profile;
   other: Profile;
   /** Speaks one line aloud in a given language, on demand. */
-  onPlay: (text: string, language: CallLanguageCode) => void;
+  onPlay: (text: string, language: CallLanguageCode) => Promise<void> | void;
 }) {
   const endRef = useRef<HTMLDivElement | null>(null);
   const [filter, setFilter] = useState<Filter>("both");
