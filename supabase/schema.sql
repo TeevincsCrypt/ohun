@@ -1004,3 +1004,48 @@ create policy "thread members upload voice notes"
   on storage.objects for insert
   to authenticated
   with check (bucket_id = 'voice-notes' and public.is_chat_member_of_path(name));
+
+-- ---------------------------------------------------------------------------
+-- Phase 13: repairing a message that lost its translation.
+--
+-- Translation happens when a message is sent, and that step can fail — a
+-- rate limit, a timed-out request, a function killed at its deadline. The
+-- message is still delivered (losing what someone wrote because a
+-- translation call failed would be far worse), so a gap can outlive the
+-- moment that caused it, and until now nothing ever closed it: the reader
+-- saw a language they cannot read, permanently.
+--
+-- A reader may therefore fill in the gap for themselves. Strictly for
+-- themselves: only into the language they joined the thread with, so this
+-- cannot be used to put words in anyone's mouth in a language they cannot
+-- check. Everything else stays the sender's to write.
+-- ---------------------------------------------------------------------------
+
+-- SECURITY DEFINER for the usual reason: a policy on chat_translations that
+-- had to read chat_members and chat_messages through their own policies
+-- would be evaluating policies inside a policy. This answers the narrow
+-- question directly — "which language did the caller join this message's
+-- thread with?" — and returns nothing else.
+create or replace function public.chat_member_language(target_message uuid)
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select cm.language
+  from public.chat_messages m
+  join public.chat_members cm
+    on cm.thread_id = m.thread_id
+  where m.id = target_message
+    and cm.user_id = auth.uid();
+$$;
+
+revoke all on function public.chat_member_language(uuid) from public, anon;
+grant execute on function public.chat_member_language(uuid) to authenticated;
+
+drop policy if exists "members backfill their own language" on public.chat_translations;
+create policy "members backfill their own language"
+  on public.chat_translations for insert
+  to authenticated
+  with check (language = public.chat_member_language(message_id));

@@ -29,6 +29,8 @@ const AUDIO_URL_TTL_SECONDS = 60 * 60;
 export interface ChatResult {
   threadId?: string;
   message?: ChatMessage;
+  /** Set by repairTranslation — the language filled in, and what it says. */
+  translation?: { language: CallLanguageCode; text: string };
   error?: string;
 }
 
@@ -321,4 +323,82 @@ export async function sendVoiceNote(
     audioPath,
     durationMs,
   });
+}
+
+/**
+ * Fills in a translation that never arrived.
+ *
+ * Sending translates once and stores the result, and that step can fail
+ * without taking the message with it — a rate limit, a timed-out request, a
+ * function killed at its deadline. Delivering the message untranslated is
+ * the right trade in the moment (losing what someone wrote would be far
+ * worse), but nothing used to close the gap afterwards, so the reader was
+ * left with a language they cannot read for good.
+ *
+ * This closes it on read. Only ever into the caller's own language, which
+ * is all the policy behind it permits, and never over a translation that
+ * already exists.
+ */
+export async function repairTranslation(messageId: string): Promise<ChatResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You need to be logged in." };
+
+  // RLS makes a message outside the caller's threads invisible, so a miss
+  // here is both "no such message" and "not yours".
+  const { data: message } = await supabase
+    .from("chat_messages")
+    .select("id, thread_id, original_text, original_language")
+    .eq("id", messageId)
+    .maybeSingle();
+
+  if (!message) return { error: "That message could not be found." };
+
+  const { data: membership } = await supabase
+    .from("chat_members")
+    .select("language")
+    .eq("thread_id", message.thread_id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const language = membership?.language;
+  if (!isCallLanguage(language)) return { error: "You are not in that conversation." };
+
+  // Already readable: it was written in this language to begin with.
+  if (message.original_language === language) return {};
+
+  const { data: existing } = await supabase
+    .from("chat_translations")
+    .select("text")
+    .eq("message_id", messageId)
+    .eq("language", language)
+    .maybeSingle();
+
+  if (existing?.text) return { translation: { language, text: existing.text } };
+
+  let translated: string | undefined;
+  try {
+    const { byLanguage } = await translateToMany({
+      text: message.original_text,
+      from: message.original_language as LanguageCode,
+      to: [language],
+    });
+    translated = byLanguage[language];
+  } catch (error) {
+    console.error("[ohun] translation repair failed", error);
+    return { error: "That message could not be translated just now." };
+  }
+
+  if (!translated) return { error: "That message could not be translated just now." };
+
+  // Ignores a conflict rather than treating it as failure: the sender's own
+  // translation may have landed between the read above and this write, and
+  // theirs is the one to keep.
+  await supabase
+    .from("chat_translations")
+    .insert({ message_id: messageId, language, text: translated });
+
+  return { translation: { language, text: translated } };
 }

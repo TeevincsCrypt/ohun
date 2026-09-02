@@ -16,6 +16,20 @@ import { MissingAnthropicKeyError, TranslationFailedError } from "./translate";
 const MODEL = "claude-opus-5";
 const MAX_TOKENS = 2000;
 
+/**
+ * Fail before the platform does.
+ *
+ * The SDK's default is a ten-minute timeout with two retries, which is far
+ * longer than the serverless function is allowed to live. A call that hangs
+ * would take the whole function down with it, and a dying function reaches
+ * the browser as a network error rather than as anything this code can
+ * report. Bounded so that a timeout plus its one retry still finishes
+ * inside the function's own limit, leaving a real error to return.
+ */
+const REQUEST_TIMEOUT_MS = 25_000;
+const MAX_RETRIES = 1;
+
+
 function languageName(code: LanguageCode): string {
   return SUPPORTED_LANGUAGES.find((language) => language.code === code)?.label ?? code;
 }
@@ -84,7 +98,7 @@ export async function translateToMany({
   const targets = [...new Set(to)].filter((code) => code !== from);
   if (targets.length === 0) return { byLanguage: {} };
 
-  const client = new Anthropic();
+  const client = new Anthropic({ timeout: REQUEST_TIMEOUT_MS, maxRetries: MAX_RETRIES });
 
   try {
     const response = await client.messages.create({

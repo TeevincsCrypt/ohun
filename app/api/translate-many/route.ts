@@ -5,6 +5,15 @@ import { createClient } from "@/lib/supabase/server";
 import { isCallLanguage, MAX_ROOM_PARTICIPANTS, type CallLanguageCode } from "@/types";
 
 /**
+ * Vercel kills a serverless function at 10 seconds by default, and a
+ * translation with adaptive thinking can exceed that. The function dying
+ * mid-request is indistinguishable from a network failure at the browser,
+ * which is what "could not reach the translation server" actually was.
+ */
+export const maxDuration = 60;
+
+
+/**
  * Translates one utterance into every language a group call needs.
  *
  * Requires a session: this spends Anthropic tokens per request, and an

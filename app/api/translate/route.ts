@@ -7,6 +7,14 @@ import {
 import { getLanguage } from "@/types";
 
 /**
+ * Vercel kills a serverless function at 10 seconds by default, and a
+ * translation with adaptive thinking can exceed that. The function dying
+ * mid-request is indistinguishable from a network failure at the browser,
+ * which is what "could not reach the translation server" actually was.
+ */
+export const maxDuration = 60;
+
+/**
  * Translates one utterance. The Anthropic API key stays server-side —
  * see lib/translation/translate.ts.
  */
