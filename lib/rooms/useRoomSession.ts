@@ -5,6 +5,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { createAudioMesh, type AudioMesh, type MeshSignal } from "@/lib/webrtc/mesh";
 import { useTranscriptionSession } from "@/lib/assemblyai/useTranscriptionSession";
+import { installSpeechPrimer } from "@/lib/audio/player";
 import { SpeechQueue } from "@/lib/audio/queue";
 import { setParticipantState } from "./actions";
 import { recordUtterance } from "@/lib/summary/actions";
@@ -83,6 +84,10 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
   // read from a callback that runs after paint, so a frame of lag is
   // harmless, and writing a ref during render is not.
   const roomRef = useRef(room);
+  // The person who *placed* the call never taps "Accept", so they have no
+  // obvious gesture to unlock speech with. Take the next tap anywhere.
+  useEffect(() => installSpeechPrimer(), []);
+
   useEffect(() => {
     roomRef.current = room;
   }, [room]);

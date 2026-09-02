@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { PROFILE_COLUMNS, toProfile, type ProfileRow } from "@/lib/supabase/profile";
+import { primeSpeech } from "@/lib/audio/player";
 import { setCallStatus } from "@/lib/calls/actions";
 import { Button, Card, Pill } from "@/components/ui";
 import { Avatar } from "./UserResult";
@@ -178,6 +179,12 @@ export function IncomingCallDialog({ selfId }: { selfId: string }) {
 
   const accept = useCallback(async () => {
     if (!incoming) return;
+    // Synchronously, before any await: browsers only unlock speech for a
+    // handler still running inside the gesture that triggered it. Every
+    // translation this device speaks is prompted by the *other* person
+    // talking, which is never a gesture here — so without this, playback is
+    // refused for the whole call and no translation is ever heard.
+    primeSpeech();
     setBusy(true);
     const { error } = await setCallStatus(incoming.callId, "accepted");
     setBusy(false);

@@ -6,6 +6,7 @@ import { PeopleClient } from "./PeopleClient";
 import { Logo } from "@/components/ohun";
 import { Avatar, LanguageTag } from "@/components/ohun/UserResult";
 import { getCallLanguage } from "@/types";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 
 /** Per-user and session-dependent — must never be prerendered at build time. */
 export const dynamic = "force-dynamic";
@@ -20,7 +21,18 @@ export default async function PeoplePage() {
           recent-calls list makes the page scroll. */}
       <header className="sticky top-0 z-30 flex items-center justify-between border-b border-[var(--border)] bg-[var(--background)]/85 px-6 py-4 backdrop-blur-md">
         <Logo />
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Link
+            href="/chats"
+            aria-label="Messages"
+            title="Messages"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] text-[var(--muted)] transition-colors hover:border-[var(--accent-border)] hover:text-[var(--foreground)]"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.9-.9L3 20.5l1.6-4.6A8.4 8.4 0 0 1 3.6 11 8.4 8.4 0 0 1 12 2.6a8.4 8.4 0 0 1 9 8.9z" />
+            </svg>
+          </Link>
+          <ThemeToggle />
           <Link
             href="/profile"
             className="flex items-center gap-3 rounded-full py-1 pl-3 pr-1 transition-colors hover:bg-[var(--surface)]"

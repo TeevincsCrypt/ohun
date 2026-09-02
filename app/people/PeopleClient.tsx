@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { openThread } from "@/lib/chat/actions";
 import { createClient } from "@/lib/supabase/client";
 import { startCall, touchPresence } from "@/lib/calls/actions";
 import { createRoom } from "@/lib/rooms/actions";
@@ -18,6 +19,8 @@ const PRESENCE_INTERVAL_MS = 30_000;
 
 export function PeopleClient({ self }: { self: Profile }) {
   const router = useRouter();
+  /** The person whose thread is being opened, so the tap can show progress. */
+  const [openingChatId, setOpeningChatId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   // Results carry the term they belong to, so "searching" is derived rather
   // than a second state that has to be kept in sync.
@@ -90,6 +93,27 @@ export function PeopleClient({ self }: { self: Profile }) {
    * Recent calls sits far below the search box, so its own errors have to
    * render next to the button that caused them.
    */
+  /**
+   * Opens the chat with someone, creating the thread on first use.
+   *
+   * openThread is idempotent, so tapping this twice lands in the same
+   * conversation rather than leaving a second empty one behind.
+   */
+  const handleMessage = useCallback(
+    async (profile: Profile) => {
+      setOpeningChatId(profile.id);
+      const result = await openThread(profile.id);
+      setOpeningChatId(null);
+
+      if (result.error || !result.threadId) {
+        setError(result.error ?? "That conversation could not be opened.");
+        return;
+      }
+      router.push(`/chat/${result.threadId}`);
+    },
+    [router],
+  );
+
   const handleCall = useCallback(
     async (profile: Pick<Profile, "id" | "displayName">): Promise<string | null> => {
       setCallingId(profile.id);
@@ -194,6 +218,8 @@ export function PeopleClient({ self }: { self: Profile }) {
               key={profile.id}
               profile={profile}
               onCall={handleCall}
+              onMessage={handleMessage}
+              isOpeningChat={openingChatId === profile.id}
               onSchedule={setScheduling}
               isCalling={callingId === profile.id}
             />

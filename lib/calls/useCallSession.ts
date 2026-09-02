@@ -8,6 +8,7 @@ import {
   useTranscriptionSession,
   type TranslationPayload,
 } from "@/lib/assemblyai/useTranscriptionSession";
+import { installSpeechPrimer } from "@/lib/audio/player";
 import { SpeechQueue } from "@/lib/audio/queue";
 import { setCallStatus } from "./actions";
 import { recordUtterance } from "@/lib/summary/actions";
@@ -123,6 +124,10 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
    * react to, and the element's resting state is derived from the user's
    * own speaker choice rather than re-read from the element.
    */
+  // The person who *placed* the call never taps "Accept", so they have no
+  // obvious gesture to unlock speech with. Take the next tap anywhere.
+  useEffect(() => installSpeechPrimer(), []);
+
   useEffect(() => {
     const queue = new SpeechQueue({
       onSpeakingChange: (speaking) => {
