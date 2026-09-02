@@ -100,8 +100,22 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
     remoteAudioRef.current = element;
   }, []);
 
-  const appendCaption = useCallback((caption: CallCaption) => {
-    setCaptions((current) => [...current, caption].slice(-MAX_CAPTIONS));
+  /**
+   * Adds a caption, or fills in one already on screen.
+   *
+   * An utterance appears the moment it is transcribed and is completed when
+   * its translation lands, so the two arrive as separate events for the
+   * same line — which is why this replaces a plain append.
+   */
+  const upsertCaption = useCallback((caption: CallCaption) => {
+    setCaptions((current) => {
+      const index = current.findIndex((existing) => existing.id === caption.id);
+      if (index === -1) return [...current, caption].slice(-MAX_CAPTIONS);
+
+      const next = current.slice();
+      next[index] = { ...next[index], ...caption };
+      return next;
+    });
   }, []);
 
   /**
@@ -203,7 +217,19 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
     languages: callLanguages,
     targetLanguage: theirLanguage,
     speakLocally: false,
-    onTranslation: ({ originalText, translatedText, spokenLanguage }) => {
+    // Shown the moment it is heard. Waiting for the translation meant a
+    // failed translation erased the transcription too — the line never
+    // appeared at all, on either side, and nothing was ever spoken.
+    onFinalUtterance: ({ id, text }) => {
+      upsertCaption({
+        id,
+        fromSelf: true,
+        originalText: text,
+        translatedText: "",
+        at: Date.now(),
+      });
+    },
+    onTranslation: ({ id, originalText, translatedText, spokenLanguage }) => {
       // The transcriber only ever sees this call's languages, so detection
       // cannot return anything outside them — but narrow rather than assert,
       // since LanguageCode also covers languages calls do not support.
@@ -217,14 +243,14 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
       );
 
       const message: CaptionMessage = {
-        id: `${selfId}-${Date.now()}`,
+        id: `${selfId}-${id}`,
         originalText,
         translatedText,
         spokenLanguage: spoken,
       };
 
-      appendCaption({
-        id: message.id,
+      upsertCaption({
+        id,
         fromSelf: true,
         originalText,
         translatedText,
@@ -322,17 +348,20 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
       // Their speech, already translated into my language by their browser.
       channel.on("broadcast", { event: "caption" }, ({ payload }) => {
         const message = payload as CaptionMessage;
-        if (!message?.translatedText) return;
+        // Their words are worth showing even when their side could not
+        // translate them: seeing the original beats seeing nothing, and it
+        // can still be played aloud in their language from the transcript.
+        if (!message?.originalText) return;
 
-        appendCaption({
+        upsertCaption({
           id: message.id,
           fromSelf: false,
           originalText: message.originalText,
-          translatedText: message.translatedText,
+          translatedText: message.translatedText ?? "",
           at: Date.now(),
         });
 
-        void speakIncoming(message.translatedText);
+        if (message.translatedText) void speakIncoming(message.translatedText);
       });
 
       // The caller waits for the receiver to appear before offering.
@@ -368,7 +397,7 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
       void channel.unsubscribe();
       channelRef.current = null;
     };
-  }, [call.id, shouldNegotiate, isCaller, selfId, appendCaption, speakIncoming]);
+  }, [call.id, shouldNegotiate, isCaller, selfId, upsertCaption, speakIncoming]);
 
   // --- watch the call row so either side leaving ends it for both ----------
   useEffect(() => {
