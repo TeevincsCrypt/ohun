@@ -1074,3 +1074,44 @@ do $$ begin
   alter publication supabase_realtime add table public.chat_messages;
 exception when duplicate_object then null;
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- Phase 15: push notifications.
+--
+-- The in-app banner and the foreground Notification the client fires
+-- itself (see MessageWatcher) only work while this tab is open and running
+-- JavaScript — which is exactly the moment nobody needs telling. Reaching
+-- someone who is not looking at the app at all requires a Service Worker
+-- and a real Web Push subscription, which is what this table stores.
+--
+-- Endpoint, not (user_id, device): a browser hands out one endpoint per
+-- installation and it changes if the subscription is ever renewed, so the
+-- endpoint itself is the natural identity to upsert on.
+-- ---------------------------------------------------------------------------
+create table if not exists public.push_subscriptions (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references public.profiles(id) on delete cascade,
+  endpoint   text not null unique,
+  p256dh     text not null,
+  auth       text not null,
+  -- Diagnostic only, so a person with several devices subscribed can tell
+  -- which is which if they ever want to manage them individually.
+  user_agent text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists push_subscriptions_user_idx on public.push_subscriptions (user_id);
+
+alter table public.push_subscriptions enable row level security;
+
+-- One policy covering every operation: this table is pure single-owner
+-- CRUD, nobody ever needs to read or write anyone else's subscription, and
+-- the server-side sender that reaches OTHER users' devices does so through
+-- the service-role client, which bypasses RLS entirely rather than reading
+-- through it.
+drop policy if exists "users manage their own push subscriptions" on public.push_subscriptions;
+create policy "users manage their own push subscriptions"
+  on public.push_subscriptions for all
+  to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());

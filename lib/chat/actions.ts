@@ -1,8 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { translateToMany } from "@/lib/translation/translate-many";
+import { pushToUser } from "@/lib/push/send";
 import { transcribeVoiceNote } from "./transcribe";
 import {
   isCallLanguage,
@@ -170,6 +172,74 @@ async function otherLanguages(
 }
 
 /**
+ * Pushes a "you have a new message" notification to every other member of
+ * a thread, in the language each of them reads.
+ *
+ * Scheduled with next/server's `after()` rather than awaited inline: it
+ * runs once the response has already gone back to the sender, so pushing
+ * to someone else's devices never adds to how long sending feels — while
+ * still running inside the same function invocation, unlike a bare
+ * fire-and-forget promise, which a serverless platform is free to kill the
+ * instant the response is written.
+ *
+ * Best-effort throughout: this follows a message that is already sent and
+ * stored, so nothing here may ever fail the send itself.
+ */
+function notifyOtherMembers(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  input: {
+    threadId: string;
+    senderId: string;
+    senderText: string;
+    senderLanguage: LanguageCode;
+    kind: ChatMessageKind;
+    translations: { language: LanguageCode; text: string }[];
+  },
+): void {
+  after(async () => {
+    try {
+      const { data: members } = await supabase
+        .from("chat_members")
+        .select("user_id")
+        .eq("thread_id", input.threadId)
+        .neq("user_id", input.senderId);
+
+      const recipientIds = (members ?? []).map((row) => row.user_id);
+      if (recipientIds.length === 0) return;
+
+      const [{ data: sender }, { data: recipients }] = await Promise.all([
+        supabase.from("profiles").select("display_name").eq("id", input.senderId).maybeSingle(),
+        supabase.from("profiles").select("id, preferred_language").in("id", recipientIds),
+      ]);
+
+      const senderName = sender?.display_name ?? "New message";
+      const byLanguage = new Map(input.translations.map((t) => [t.language, t.text]));
+
+      await Promise.all(
+        (recipients ?? []).map((recipient) => {
+          // In the recipient's own language when translation reached that
+          // far; the original otherwise — matching how the thread itself
+          // falls back (see renderMessage in types/chat.ts).
+          const preview =
+            recipient.preferred_language === input.senderLanguage
+              ? input.senderText
+              : (byLanguage.get(recipient.preferred_language) ?? input.senderText);
+
+          return pushToUser(recipient.id, {
+            title: senderName,
+            body: input.kind === "voice" ? `🎤 ${preview}` : preview,
+            url: `/chat/${input.threadId}`,
+            tag: input.threadId,
+          });
+        }),
+      );
+    } catch (error) {
+      console.error("[ohun] push notification dispatch failed", error);
+    }
+  });
+}
+
+/**
  * Stores a message and the translations that go with it.
  *
  * A translation failure is deliberately not fatal. The message is already
@@ -243,6 +313,15 @@ async function persist(
       .createSignedUrl(row.audio_path, AUDIO_URL_TTL_SECONDS);
     audioUrl = signed?.signedUrl ?? null;
   }
+
+  notifyOtherMembers(supabase, {
+    threadId: input.threadId,
+    senderId: input.senderId,
+    senderText: input.text,
+    senderLanguage: input.language,
+    kind: input.kind,
+    translations: stored,
+  });
 
   revalidatePath("/chats");
   return { message: toMessage(row as MessageRow, stored, audioUrl) };

@@ -38,6 +38,16 @@ interface Incoming {
 
 export function MessageWatcher() {
   const pathname = usePathname();
+  // Read inside the event handler, not captured as an effect dependency —
+  // a dependency would tear the realtime channel down and reopen it on
+  // every navigation in the app, for a value the handler only needs to
+  // read at the moment a message actually arrives. Written from an effect
+  // rather than during render, since a ref write belongs there.
+  const pathnameRef = useRef(pathname);
+  useEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
+
   const [userId, setUserId] = useState<string | null>(null);
   const [incoming, setIncoming] = useState<Incoming | null>(null);
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -76,9 +86,6 @@ export function MessageWatcher() {
     if (!userId) return;
 
     const supabase = createClient();
-    // A ref would be re-read on every event; this is read once per message
-    // and the value is only ever "the path at the time the message landed".
-    const currentPath = pathname;
 
     const channel = supabase
       .channel(`messages:${userId}`)
@@ -97,7 +104,7 @@ export function MessageWatcher() {
           // Your own message, echoed back.
           if (message.sender_id === userId) return;
           // Already looking at it.
-          if (currentPath === `/chat/${message.thread_id}`) return;
+          if (pathnameRef.current === `/chat/${message.thread_id}`) return;
 
           // The row carries the original; the reader wants their own
           // language. Read it back rather than showing a preview they
@@ -147,7 +154,7 @@ export function MessageWatcher() {
     return () => {
       void channel.unsubscribe();
     };
-  }, [userId, pathname, show]);
+  }, [userId, show]);
 
   // Asked for once a message has actually arrived, so the prompt has a
   // reason the user can see rather than appearing out of nowhere on load.

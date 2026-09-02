@@ -5,6 +5,7 @@ import { listThreads } from "@/lib/chat/queries";
 import { Avatar } from "@/components/ohun/UserResult";
 import { Logo } from "@/components/ohun/Logo";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { PushNotificationToggle } from "@/components/ohun/PushNotificationToggle";
 import { LANGUAGE_FLAG } from "@/types";
 
 /** Per-user and session-dependent — must never be prerendered at build time. */
@@ -41,12 +42,15 @@ export default async function ChatsPage() {
       </header>
 
       <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-6">
-        <div className="mb-5">
-          <h1 className="text-xl font-semibold tracking-tight">Messages</h1>
-          <p className="mt-1 text-sm text-[var(--muted)]">
-            Write in {LANGUAGE_FLAG[profile.preferredLanguage]}{" "}
-            {profile.preferredLanguage.toUpperCase()} — everyone reads it in their own language.
-          </p>
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight">Messages</h1>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Write in {LANGUAGE_FLAG[profile.preferredLanguage]}{" "}
+              {profile.preferredLanguage.toUpperCase()} — everyone reads it in their own language.
+            </p>
+          </div>
+          <PushNotificationToggle />
         </div>
 
         {threads.length === 0 ? (
