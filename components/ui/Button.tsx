@@ -13,10 +13,12 @@ const sizes: Record<Size, string> = {
 };
 
 const variants: Record<Variant, string> = {
-  // Dark text on the accent: the lime is bright enough that white on it
-  // fails contrast, so the foreground inverts rather than the background.
+  // Text on the accent fill is a token, not a fixed colour: the dark theme
+  // fills with bright lime and needs near-black on it, the light theme
+  // fills with a deep green and needs white. Both directions fail if this
+  // is pinned either way.
   solid:
-    "bg-[var(--accent)] text-[#0a1400] shadow-[0_6px_24px_-8px_var(--accent-glow)] hover:bg-[var(--accent-strong)]",
+    "bg-[var(--accent)] text-[var(--accent-on)] shadow-[0_6px_24px_-8px_var(--accent-glow)] hover:bg-[var(--accent-strong)]",
   outline:
     "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-raised)] hover:border-[var(--accent-border)]",
   ghost: "text-[var(--muted)] hover:text-[var(--foreground)]",

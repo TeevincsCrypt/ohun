@@ -6,6 +6,7 @@ import { PeopleClient } from "./PeopleClient";
 import { Logo } from "@/components/ohun";
 import { Avatar, LanguageTag } from "@/components/ohun/UserResult";
 import { getCallLanguage } from "@/types";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 
 /** Per-user and session-dependent — must never be prerendered at build time. */
 export const dynamic = "force-dynamic";
@@ -20,7 +21,8 @@ export default async function PeoplePage() {
           recent-calls list makes the page scroll. */}
       <header className="sticky top-0 z-30 flex items-center justify-between border-b border-[var(--border)] bg-[var(--background)]/85 px-6 py-4 backdrop-blur-md">
         <Logo />
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <ThemeToggle />
           <Link
             href="/profile"
             className="flex items-center gap-3 rounded-full py-1 pl-3 pr-1 transition-colors hover:bg-[var(--surface)]"

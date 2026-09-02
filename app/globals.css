@@ -37,12 +37,72 @@
   --danger: #f87171;
   --danger-soft: rgba(248, 113, 113, 0.12);
   --danger-border: rgba(248, 113, 113, 0.3);
+
+  /* Text that sits *on* a filled accent surface. The lime is bright enough
+     that white on it fails contrast, so the text goes dark instead. Light
+     mode darkens the fill and flips this to white — see below. */
+  --accent-on: #0a1400;
+
+  /* The "lit card" treatment: a faint vertical wash plus a hairline top
+     edge that catches light. Tokens because the direction reverses between
+     themes — light falls on a dark card as white and on a white card as a
+     soft shadow. */
+  --lit-wash-top: rgba(244, 245, 247, 0.055);
+  --lit-wash-bottom: rgba(244, 245, 247, 0.02);
+  --lit-edge: rgba(244, 245, 247, 0.22);
+  --grain-opacity: 0.05;
+
+  color-scheme: dark;
+}
+
+/*
+ * Light mode.
+ *
+ * White, with the same lime carried through — but the lime that reads as
+ * brand on near-black is unreadable as text on white, so it splits by job:
+ * the fill keeps a bright lime (small dots, primary buttons) while anything
+ * rendered *as text* uses a deeper green of the same family. Same colour
+ * identity, legible on paper-white.
+ */
+:root[data-theme="light"] {
+  --background: #ffffff;
+  --foreground: #0b0f0a;
+  --muted: rgba(11, 15, 10, 0.58);
+  --border: rgba(11, 15, 10, 0.12);
+  --surface: rgba(11, 15, 10, 0.028);
+  --surface-raised: rgba(11, 15, 10, 0.055);
+
+  /* lime-700: still unmistakably the OHUN green, but it passes contrast on
+     white where #a3e635 does not come close. */
+  --accent: #4d7c0f;
+  --accent-strong: #3f6212;
+  --accent-soft: rgba(77, 124, 15, 0.1);
+  --accent-border: rgba(77, 124, 15, 0.3);
+  --accent-glow: rgba(77, 124, 15, 0.25);
+  --accent-on: #ffffff;
+
+  --peer: #4f46e5;
+  --peer-soft: rgba(79, 70, 229, 0.1);
+  --peer-border: rgba(79, 70, 229, 0.3);
+  --peer-glow: rgba(79, 70, 229, 0.22);
+
+  --danger: #dc2626;
+  --danger-soft: rgba(220, 38, 38, 0.1);
+  --danger-border: rgba(220, 38, 38, 0.3);
+
+  --lit-wash-top: rgba(11, 15, 10, 0.03);
+  --lit-wash-bottom: rgba(11, 15, 10, 0.008);
+  --lit-edge: rgba(11, 15, 10, 0.08);
+  --grain-opacity: 0.03;
+
+  color-scheme: light;
 }
 
 /* Kept as an alias: every app surface already wraps itself in this class,
-   and the palette is now dark everywhere, so it simply inherits. */
+   and the palette now comes from the root in both themes, so it inherits
+   rather than pinning a scheme of its own. */
 .theme-dark {
-  color-scheme: dark;
+  color-scheme: inherit;
 }
 
 @theme inline {
@@ -86,7 +146,7 @@ body {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.05;
+  opacity: var(--grain-opacity);
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
@@ -129,7 +189,7 @@ body {
 .card-lit {
   position: relative;
   background:
-    linear-gradient(180deg, rgba(244, 245, 247, 0.055) 0%, rgba(244, 245, 247, 0.02) 100%);
+    linear-gradient(180deg, var(--lit-wash-top) 0%, var(--lit-wash-bottom) 100%);
   border: 1px solid var(--border);
 }
 
@@ -141,8 +201,8 @@ body {
   background: linear-gradient(
     90deg,
     transparent,
-    rgba(244, 245, 247, 0.22) 30%,
-    rgba(244, 245, 247, 0.22) 70%,
+    var(--lit-edge) 30%,
+    var(--lit-edge) 70%,
     transparent
   );
   pointer-events: none;
