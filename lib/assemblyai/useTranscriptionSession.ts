@@ -414,13 +414,20 @@ export function useTranscriptionSession({
     resetTranscriptState();
 
     /**
-     * Reopens a session that dropped while the call was still going.
+     * Reopens a session — one that dropped mid-call, or one that never
+     * connected in the first place.
      *
-     * A streaming session can end for reasons that have nothing to do with
-     * the call: an inactivity timeout after a quiet stretch, a network
-     * blip, a server-side restart. Treating any of those as terminal meant
-     * one drop ended transcription for the rest of the call, which is what
-     * "it stopped working after I muted" actually was.
+     * A streaming session can end, or fail to begin, for reasons that have
+     * nothing to do with the call: an inactivity timeout after a quiet
+     * stretch, a network blip, a server-side restart, a WebSocket handshake
+     * that did not complete inside its timeout on a slow connection.
+     * Treating any of those as terminal meant one blip ended transcription
+     * for the rest of the call — which is what "it stopped working after I
+     * muted" turned out to be for a mid-call drop, and what an inconsistent
+     * "could not connect to the transcription service" turned out to be for
+     * the very first connect: that one path had no retry at all, so a
+     * failure any other kind of drop would have quietly recovered from was
+     * instead immediately fatal, on the first attempt only.
      *
      * Bounded, so a genuinely broken configuration surfaces as an error
      * rather than retrying forever.
@@ -605,6 +612,18 @@ export function useTranscriptionSession({
         error instanceof TranscriptionError || error instanceof MicrophoneError
           ? error.message
           : "Something went wrong starting the microphone.";
+
+      // Worth retrying only when the failure is TranscriptionError's
+      // "connection" kind — a handshake that did not complete, a network
+      // blip reaching AssemblyAI. A MicrophoneError (permission refused, no
+      // device, an unsupported browser) will not succeed on retry, and
+      // TranscriptionError's other reasons ("auth", "server-config") are
+      // configuration problems retrying cannot fix either — spending the
+      // retry budget on those would only delay the user seeing the real
+      // problem.
+      const retryable = error instanceof TranscriptionError && error.reason === "connection";
+      if (retryable && reconnect(`initial connect failed: ${message}`)) return;
+
       fail(message);
       await teardown();
     }
