@@ -14,6 +14,20 @@ const MODEL = "claude-opus-5";
 /** Translations are single utterances — a low ceiling keeps latency down. */
 const MAX_TOKENS = 2000;
 
+/**
+ * Fail before the platform does.
+ *
+ * The SDK's default is a ten-minute timeout with two retries, which is far
+ * longer than the serverless function is allowed to live. A call that hangs
+ * would take the whole function down with it, and a dying function reaches
+ * the browser as a network error rather than as anything this code can
+ * report. Bounded so that a timeout plus its one retry still finishes
+ * inside the function's own limit, leaving a real error to return.
+ */
+const REQUEST_TIMEOUT_MS = 25_000;
+const MAX_RETRIES = 1;
+
+
 export class MissingAnthropicKeyError extends Error {
   constructor() {
     super(
@@ -61,7 +75,7 @@ export async function translateText(
     throw new MissingAnthropicKeyError();
   }
 
-  const client = new Anthropic();
+  const client = new Anthropic({ timeout: REQUEST_TIMEOUT_MS, maxRetries: MAX_RETRIES });
 
   try {
     const response = await client.messages.create({
