@@ -164,13 +164,21 @@ export async function listThreads(): Promise<ChatThreadSummary[]> {
 
   const { data: myMemberships } = await supabase
     .from("chat_members")
-    .select("thread_id, language")
+    .select("thread_id")
     .eq("user_id", user.id);
 
   const threadIds = (myMemberships ?? []).map((row) => row.thread_id);
   if (threadIds.length === 0) return [];
 
-  const myLanguage = (myMemberships?.[0]?.language ?? "en") as CallLanguageCode;
+  // The reader's current language, matching what the thread view itself
+  // renders — see otherLanguages in lib/chat/actions.ts.
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("preferred_language")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const myLanguage = (me?.preferred_language ?? "en") as CallLanguageCode;
 
   const [{ data: threads }, { data: allMembers }] = await Promise.all([
     supabase

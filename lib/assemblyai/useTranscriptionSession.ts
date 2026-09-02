@@ -69,11 +69,20 @@ const initialState: TranscriptionSessionState = {
 };
 
 export interface TranslationPayload {
+  /** Correlates with the onFinalUtterance that announced this utterance. */
+  id: string;
   /** What the speaker said, in their own language. */
   originalText: string;
   /** The same utterance rendered in the listener's language. */
   translatedText: string;
   /** The language it was actually spoken in — detected, not assumed. */
+  spokenLanguage: LanguageCode;
+}
+
+/** An utterance the moment it is complete, before anything is translated. */
+export interface UtterancePayload {
+  id: string;
+  text: string;
   spokenLanguage: LanguageCode;
 }
 
@@ -93,6 +102,15 @@ interface SessionOptions {
   speakLocally?: boolean;
   /** Fired once an utterance has been translated, for delivery to the peer. */
   onTranslation?: (payload: TranslationPayload) => void;
+  /**
+   * Fired the moment an utterance is final, before translation is attempted.
+   *
+   * Exists so what was *heard* can be shown without waiting on — or being
+   * lost to — what it translates into. A caller that only reacts to
+   * onTranslation shows nothing at all when a translation fails, including
+   * the transcription it already had in hand.
+   */
+  onFinalUtterance?: (payload: UtterancePayload) => void;
   /**
    * Skip the built-in one-to-one translation and hand each finished
    * utterance to onUtterance instead. A group call needs the same sentence
@@ -126,6 +144,7 @@ export function useTranscriptionSession({
   speakLocally = true,
   translateManually = false,
   onTranslation,
+  onFinalUtterance,
   onUtterance,
   stream,
 }: SessionOptions) {
@@ -192,6 +211,9 @@ export function useTranscriptionSession({
   // media effect on every render and tear down a live transcription stream.
   const onTranslationRef = useRef(onTranslation);
   onTranslationRef.current = onTranslation;
+
+  const onFinalUtteranceRef = useRef(onFinalUtterance);
+  onFinalUtteranceRef.current = onFinalUtterance;
 
   const onUtteranceRef = useRef(onUtterance);
   onUtteranceRef.current = onUtterance;
@@ -312,7 +334,12 @@ export function useTranscriptionSession({
 
   /** Translate one finished utterance, then speak it in the listener's language. */
   const translateAndSpeak = useCallback(
-    async (text: string, spokenLanguage: LanguageCode, isCurrent: () => boolean) => {
+    async (
+      id: string,
+      text: string,
+      spokenLanguage: LanguageCode,
+      isCurrent: () => boolean,
+    ) => {
       translationAbortRef.current?.abort();
       const controller = new AbortController();
       translationAbortRef.current = controller;
@@ -339,7 +366,7 @@ export function useTranscriptionSession({
           isTranslating: false,
         }));
 
-        onTranslationRef.current?.({ originalText: text, translatedText, spokenLanguage });
+        onTranslationRef.current?.({ id, originalText: text, translatedText, spokenLanguage });
 
         if (speakLocally) {
           await speak({ text: translatedText, languageCode: localeFor(targetLanguage) });
@@ -477,10 +504,18 @@ export function useTranscriptionSession({
             translatedTurnsRef.current.add(turnOrder);
             // What was heard beats what the profile claims.
             const spoken = detectedLanguage ?? language;
+            // Scoped to this session: a reconnect restarts turn numbering,
+            // and two turns numbered 0 in one call must not collide.
+            const utteranceId = `${generation}-${turnOrder}`;
+
+            // Announced before translation, so what was heard can be shown
+            // even if translating it fails.
+            onFinalUtteranceRef.current?.({ id: utteranceId, text, spokenLanguage: spoken });
+
             if (translateManually) {
               void delegateUtterance(text, spoken, isCurrent);
             } else {
-              void translateAndSpeak(text, spoken, isCurrent);
+              void translateAndSpeak(utteranceId, text, spoken, isCurrent);
             }
           }
         },

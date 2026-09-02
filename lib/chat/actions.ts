@@ -34,11 +34,6 @@ export interface ChatResult {
   error?: string;
 }
 
-interface MemberRow {
-  user_id: string;
-  language: CallLanguageCode;
-}
-
 interface MessageRow {
   id: string;
   thread_id: string;
@@ -130,19 +125,45 @@ export async function openThread(otherUserId: string): Promise<ChatResult> {
   return { threadId: thread.id };
 }
 
-/** Every language in a thread except the sender's, deduplicated. */
+/**
+ * Every language a message must be rendered into, deduplicated.
+ *
+ * Read from each member's CURRENT profile, not from the language snapshot
+ * chat_members took when they joined.
+ *
+ * The snapshot is right for a call, which is one fixed session: what a
+ * sentence was translated into mid-call must not change under you. A thread
+ * is not that. It is read weeks later, and a reader who has since changed
+ * their language expects to read it in the language they have now — which
+ * is also the only language the view will look a translation up under.
+ *
+ * Keying the two off different sources is what silently broke this: the
+ * sender wrote translations under the language the reader had at thread
+ * creation, while the reader's view asked for the language they have today.
+ * When those differ the lookup misses and the message shows untranslated,
+ * for good. And because only one person needs to have changed theirs, it
+ * breaks in one direction only — which is exactly how it presented.
+ */
 async function otherLanguages(
   supabase: Awaited<ReturnType<typeof createClient>>,
   threadId: string,
   from: LanguageCode,
 ): Promise<CallLanguageCode[]> {
-  const { data } = await supabase
+  const { data: members } = await supabase
     .from("chat_members")
-    .select("user_id, language")
+    .select("user_id")
     .eq("thread_id", threadId);
 
-  const languages = (data ?? [])
-    .map((row: MemberRow) => row.language)
+  const ids = (members ?? []).map((row) => row.user_id);
+  if (ids.length === 0) return [];
+
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("id, preferred_language")
+    .in("id", ids);
+
+  const languages = (profiles ?? [])
+    .map((row) => row.preferred_language)
     .filter((language): language is CallLanguageCode => isCallLanguage(language));
 
   return [...new Set(languages)].filter((language) => language !== from);
@@ -356,15 +377,27 @@ export async function repairTranslation(messageId: string): Promise<ChatResult> 
 
   if (!message) return { error: "That message could not be found." };
 
+  // Membership is the permission check; the language comes from the profile,
+  // for the reason in otherLanguages above. Repairing into the snapshot
+  // language was the same bug in miniature — it wrote a translation the view
+  // never reads, then marked the message repaired so it was never retried.
   const { data: membership } = await supabase
     .from("chat_members")
-    .select("language")
+    .select("user_id")
     .eq("thread_id", message.thread_id)
     .eq("user_id", user.id)
     .maybeSingle();
 
-  const language = membership?.language;
-  if (!isCallLanguage(language)) return { error: "You are not in that conversation." };
+  if (!membership) return { error: "You are not in that conversation." };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("preferred_language")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const language = profile?.preferred_language;
+  if (!isCallLanguage(language)) return { error: "Set your language in your profile first." };
 
   // Already readable: it was written in this language to begin with.
   if (message.original_language === language) return {};

@@ -152,17 +152,29 @@ export function LiveCaptions({
                 )}
 
                 {/* For their speech this is what was spoken aloud here; for
-                    your own it is what they heard. */}
+                    your own it is what they heard.
+
+                    A line appears as soon as it is transcribed, so the
+                    translation is briefly absent — and stays absent if
+                    translating it failed. Saying so is the point: the
+                    alternative is an empty row that looks like a bug. */}
                 {filter !== "original" && (
-                  <p className="mt-1 flex items-start gap-1.5 text-sm leading-snug" style={{ color }}>
-                    <span className="min-w-0 flex-1">{caption.translatedText}</span>
-                    <span className="mt-[3px]">
-                      <PlayLineButton
-                        text={caption.translatedText}
-                        onPlay={() => onPlay(caption.translatedText, heardLanguage)}
-                      />
-                    </span>
-                  </p>
+                  caption.translatedText ? (
+                    <p className="mt-1 flex items-start gap-1.5 text-sm leading-snug" style={{ color }}>
+                      <span className="min-w-0 flex-1">{caption.translatedText}</span>
+                      <span className="mt-[3px]">
+                        <PlayLineButton
+                          text={caption.translatedText}
+                          onPlay={() => onPlay(caption.translatedText, heardLanguage)}
+                        />
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="mt-1 flex items-center gap-1.5 text-xs text-[var(--muted)]">
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--muted)]" />
+                      Translating…
+                    </p>
+                  )
                 )}
               </div>
             </div>

@@ -1026,6 +1026,11 @@ create policy "thread members upload voice notes"
 -- would be evaluating policies inside a policy. This answers the narrow
 -- question directly — "which language did the caller join this message's
 -- thread with?" — and returns nothing else.
+-- Membership is the permission; the language is the caller's CURRENT
+-- profile language, not the snapshot chat_members took when they joined.
+-- The view looks a translation up under the reader's language today, so
+-- admitting the snapshot instead would let a reader write a translation
+-- their own screen then ignores.
 create or replace function public.chat_member_language(target_message uuid)
 returns text
 language sql
@@ -1033,12 +1038,14 @@ stable
 security definer
 set search_path = public
 as $$
-  select cm.language
+  select p.preferred_language
   from public.chat_messages m
   join public.chat_members cm
     on cm.thread_id = m.thread_id
-  where m.id = target_message
-    and cm.user_id = auth.uid();
+   and cm.user_id = auth.uid()
+  join public.profiles p
+    on p.id = auth.uid()
+  where m.id = target_message;
 $$;
 
 revoke all on function public.chat_member_language(uuid) from public, anon;
@@ -1049,3 +1056,21 @@ create policy "members backfill their own language"
   on public.chat_translations for insert
   to authenticated
   with check (language = public.chat_member_language(message_id));
+
+-- ---------------------------------------------------------------------------
+-- Phase 14: message notifications.
+--
+-- The thread view itself uses a broadcast the sender emits once everything
+-- is stored, which is right there but useless anywhere else: a broadcast
+-- only reaches someone already subscribed to that thread's channel, and the
+-- whole point of a notification is to reach someone who is not looking at
+-- the thread.
+--
+-- Row events reach every session the recipient has open, wherever they are
+-- in the app, and RLS still applies — nobody is told about a message in a
+-- thread they are not in.
+-- ---------------------------------------------------------------------------
+do $$ begin
+  alter publication supabase_realtime add table public.chat_messages;
+exception when duplicate_object then null;
+end $$;
