@@ -768,3 +768,239 @@ create policy "read summaries from your calls" on public.call_summaries
 -- Summaries are written by the server through the service-role client, which
 -- bypasses RLS. No insert or update policy exists here on purpose: a client
 -- must not be able to author a summary of its own conversation.
+
+-- ---------------------------------------------------------------------------
+-- Phase 12: translated chat.
+--
+-- The same idea as a call, asynchronous. You write in your language; every
+-- other member of the thread reads it in theirs. Translations are computed
+-- once, when the message is sent, and stored — not re-derived per reader.
+-- A message is a permanent record that several people will open at
+-- different times, so translating on read would mean paying for and waiting
+-- on the same translation repeatedly, and worse, two readers of the same
+-- language could see different wordings of one message.
+--
+-- Threads are modelled as membership rows rather than a pair of columns, so
+-- the same tables carry a group thread later without a migration. Today
+-- every thread is opened with exactly two members.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.chat_threads (
+  id              uuid primary key default gen_random_uuid(),
+  created_by      uuid not null references public.profiles(id) on delete cascade,
+  created_at      timestamptz not null default now(),
+  -- Denormalised so the thread list can order by recency without a join
+  -- onto the messages table for every row.
+  last_message_at timestamptz not null default now()
+);
+
+create table if not exists public.chat_members (
+  thread_id uuid not null references public.chat_threads(id) on delete cascade,
+  user_id   uuid not null references public.profiles(id) on delete cascade,
+  -- Snapshotted at join time, exactly as calls and rooms snapshot theirs:
+  -- the language a message was translated into is a property of the message
+  -- as sent, and a later profile edit must not make old messages look wrong.
+  language  text not null check (language in ('en', 'fr', 'es', 'de', 'pt', 'it')),
+  joined_at timestamptz not null default now(),
+  primary key (thread_id, user_id)
+);
+
+create index if not exists chat_members_user_idx on public.chat_members (user_id);
+
+create table if not exists public.chat_messages (
+  id                uuid primary key default gen_random_uuid(),
+  thread_id         uuid not null references public.chat_threads(id) on delete cascade,
+  sender_id         uuid not null references public.profiles(id) on delete cascade,
+  kind              text not null default 'text' check (kind in ('text', 'voice')),
+  -- What the sender actually wrote or said, in their own language.
+  original_text     text not null default '',
+  original_language text not null check (original_language in ('en', 'fr', 'es', 'de', 'pt', 'it', 'yo')),
+  -- Voice notes only: the object in the voice-notes bucket, and how long it
+  -- runs, so the player can size its waveform before fetching the audio.
+  audio_path        text,
+  duration_ms       integer,
+  created_at        timestamptz not null default now()
+);
+
+create index if not exists chat_messages_thread_idx
+  on public.chat_messages (thread_id, created_at desc);
+
+-- One row per language a message was rendered into. The sender's own
+-- language is not stored here — that is chat_messages.original_text.
+create table if not exists public.chat_translations (
+  message_id uuid not null references public.chat_messages(id) on delete cascade,
+  language   text not null check (language in ('en', 'fr', 'es', 'de', 'pt', 'it', 'yo')),
+  text       text not null,
+  primary key (message_id, language)
+);
+
+-- ---------------------------------------------------------------------------
+-- Membership test used by every policy below.
+--
+-- SECURITY DEFINER for the same reason as is_room_participant: the natural
+-- policy on chat_members has to read chat_members to decide whether you may
+-- read chat_members, which recurses until Postgres gives up. Answering the
+-- question with RLS bypassed breaks the cycle.
+--
+-- Safe to expose: it returns a yes/no about the caller's own membership and
+-- no row data.
+-- ---------------------------------------------------------------------------
+create or replace function public.is_chat_member(target_thread uuid, target_user uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.chat_members
+    where thread_id = target_thread and user_id = target_user
+  );
+$$;
+
+revoke all on function public.is_chat_member(uuid, uuid) from public, anon;
+grant execute on function public.is_chat_member(uuid, uuid) to authenticated;
+
+alter table public.chat_threads      enable row level security;
+alter table public.chat_members      enable row level security;
+alter table public.chat_messages     enable row level security;
+alter table public.chat_translations enable row level security;
+
+-- --- threads ---------------------------------------------------------------
+-- `or created_by = auth.uid()` is not redundant with membership, and the
+-- thread cannot be opened without it. Seating the first member requires
+-- reading the thread to check who created it, but at that instant the
+-- thread has no members — so a membership-only rule can never be satisfied
+-- and every new thread is dead on arrival. The creator is admissible on
+-- their own thread, which breaks the cycle; a moment later they are a
+-- member like anyone else.
+drop policy if exists "members read their threads" on public.chat_threads;
+create policy "members read their threads"
+  on public.chat_threads for select
+  to authenticated
+  using (public.is_chat_member(id, auth.uid()) or created_by = auth.uid());
+
+-- `insert ... returning` runs the SELECT policy on the new row, and at that
+-- moment no membership row exists yet — so the creator has to be admissible
+-- on their own account, exactly as rooms are.
+drop policy if exists "users open threads" on public.chat_threads;
+create policy "users open threads"
+  on public.chat_threads for insert
+  to authenticated
+  with check (created_by = auth.uid());
+
+drop policy if exists "members touch their threads" on public.chat_threads;
+create policy "members touch their threads"
+  on public.chat_threads for update
+  to authenticated
+  using (public.is_chat_member(id, auth.uid()))
+  with check (public.is_chat_member(id, auth.uid()));
+
+-- --- members ---------------------------------------------------------------
+drop policy if exists "members read the roster" on public.chat_members;
+create policy "members read the roster"
+  on public.chat_members for select
+  to authenticated
+  using (public.is_chat_member(thread_id, auth.uid()));
+
+-- Seating is done by whoever opened the thread, which covers both rows of a
+-- new one-to-one thread in a single statement.
+drop policy if exists "thread opener seats members" on public.chat_members;
+create policy "thread opener seats members"
+  on public.chat_members for insert
+  to authenticated
+  with check (
+    exists (
+      select 1 from public.chat_threads t
+      where t.id = thread_id and t.created_by = auth.uid()
+    )
+  );
+
+-- --- messages --------------------------------------------------------------
+drop policy if exists "members read messages" on public.chat_messages;
+create policy "members read messages"
+  on public.chat_messages for select
+  to authenticated
+  using (public.is_chat_member(thread_id, auth.uid()));
+
+drop policy if exists "members send messages" on public.chat_messages;
+create policy "members send messages"
+  on public.chat_messages for insert
+  to authenticated
+  with check (sender_id = auth.uid() and public.is_chat_member(thread_id, auth.uid()));
+
+-- --- translations ----------------------------------------------------------
+drop policy if exists "members read translations" on public.chat_translations;
+create policy "members read translations"
+  on public.chat_translations for select
+  to authenticated
+  using (
+    exists (
+      select 1 from public.chat_messages m
+      where m.id = message_id and public.is_chat_member(m.thread_id, auth.uid())
+    )
+  );
+
+-- Only the sender writes the translations of their own message, so a member
+-- cannot put words in someone else's mouth in a language they cannot read.
+drop policy if exists "senders write their translations" on public.chat_translations;
+create policy "senders write their translations"
+  on public.chat_translations for insert
+  to authenticated
+  with check (
+    exists (
+      select 1 from public.chat_messages m
+      where m.id = message_id and m.sender_id = auth.uid()
+    )
+  );
+
+-- ---------------------------------------------------------------------------
+-- Voice notes.
+--
+-- Private, unlike avatars: a voice note is conversation content, readable
+-- only by the thread it was sent to. Objects are stored as
+-- voice-notes/<thread-id>/<file>, and the policies below check membership
+-- of that leading folder.
+-- ---------------------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('voice-notes', 'voice-notes', false)
+on conflict (id) do nothing;
+
+-- The first path segment is user input, so it is not necessarily a uuid.
+-- A bad cast inside a policy would raise rather than deny, which turns a
+-- malformed key into an error instead of a refusal — hence the explicit
+-- catch.
+create or replace function public.is_chat_member_of_path(object_name text)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  thread_id uuid;
+begin
+  begin
+    thread_id := split_part(object_name, '/', 1)::uuid;
+  exception when others then
+    return false;
+  end;
+
+  return public.is_chat_member(thread_id, auth.uid());
+end;
+$$;
+
+revoke all on function public.is_chat_member_of_path(text) from public, anon;
+grant execute on function public.is_chat_member_of_path(text) to authenticated;
+
+drop policy if exists "thread members read voice notes" on storage.objects;
+create policy "thread members read voice notes"
+  on storage.objects for select
+  to authenticated
+  using (bucket_id = 'voice-notes' and public.is_chat_member_of_path(name));
+
+drop policy if exists "thread members upload voice notes" on storage.objects;
+create policy "thread members upload voice notes"
+  on storage.objects for insert
+  to authenticated
+  with check (bucket_id = 'voice-notes' and public.is_chat_member_of_path(name));
