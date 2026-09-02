@@ -198,13 +198,21 @@ function notifyOtherMembers(
 ): void {
   after(async () => {
     try {
-      const { data: members } = await supabase
+      const { data: members, error: membersError } = await supabase
         .from("chat_members")
         .select("user_id")
         .eq("thread_id", input.threadId)
         .neq("user_id", input.senderId);
 
+      if (membersError) {
+        console.error("[ohun] push: could not read thread members", membersError);
+        return;
+      }
+
       const recipientIds = (members ?? []).map((row) => row.user_id);
+      console.info(
+        `[ohun] push: message in thread ${input.threadId} has ${recipientIds.length} other member(s)`,
+      );
       if (recipientIds.length === 0) return;
 
       const [{ data: sender }, { data: recipients }] = await Promise.all([
