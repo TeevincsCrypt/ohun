@@ -55,18 +55,40 @@ export interface PushPayload {
  * never depend on.
  */
 export async function pushToUser(userId: string, payload: PushPayload): Promise<void> {
-  if (!ensureConfigured()) return;
+  // Every early return below is logged. This whole path runs silently by
+  // design — a push failure must never surface to the sender — which means
+  // a Vercel function log is the ONLY way anyone can ever tell which of
+  // these five things happened for a given message. Without that, "it just
+  // doesn't work" has no way to become "here is exactly where it stops."
+  if (!ensureConfigured()) {
+    console.warn(
+      "[ohun] push: NEXT_PUBLIC_VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY not set — skipping",
+    );
+    return;
+  }
 
   const admin = tryCreateAdminClient();
-  if (!admin) return;
+  if (!admin) {
+    console.warn("[ohun] push: SUPABASE_SERVICE_ROLE_KEY not set — skipping");
+    return;
+  }
 
-  const { data: subscriptions } = await admin
+  const { data: subscriptions, error: readError } = await admin
     .from("push_subscriptions")
     .select("id, endpoint, p256dh, auth")
     .eq("user_id", userId);
 
-  if (!subscriptions || subscriptions.length === 0) return;
+  if (readError) {
+    console.error("[ohun] push: could not read push_subscriptions", readError);
+    return;
+  }
 
+  if (!subscriptions || subscriptions.length === 0) {
+    console.info(`[ohun] push: user ${userId} has no subscribed devices — nothing to send`);
+    return;
+  }
+
+  console.info(`[ohun] push: sending to ${subscriptions.length} device(s) for user ${userId}`);
   const body = JSON.stringify(payload);
 
   await Promise.all(
@@ -79,6 +101,7 @@ export async function pushToUser(userId: string, payload: PushPayload): Promise<
           },
           body,
         );
+        console.info(`[ohun] push: delivered to subscription ${subscription.id}`);
       } catch (error) {
         // 404/410 is the push service itself saying this subscription is
         // gone — the browser dropped it, the device was reset, the app was
@@ -89,11 +112,18 @@ export async function pushToUser(userId: string, payload: PushPayload): Promise<
           error instanceof webpush.WebPushError ? error.statusCode : undefined;
 
         if (statusCode === 404 || statusCode === 410) {
+          console.warn(
+            `[ohun] push: subscription ${subscription.id} is gone (${statusCode}) — deleting it`,
+          );
           await admin.from("push_subscriptions").delete().eq("id", subscription.id);
           return;
         }
 
-        console.error("[ohun] push notification failed", error);
+        console.error(
+          `[ohun] push: send failed for subscription ${subscription.id}` +
+            (statusCode ? ` (status ${statusCode})` : ""),
+          error,
+        );
       }
     }),
   );
