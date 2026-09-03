@@ -192,6 +192,7 @@ function ControlButton({
   label,
   showLabel = true,
   active = true,
+  disabled = false,
   tone = "neutral",
   onClick,
   children,
@@ -199,6 +200,7 @@ function ControlButton({
   label: string;
   showLabel?: boolean;
   active?: boolean;
+  disabled?: boolean;
   tone?: "neutral" | "danger";
   onClick: () => void;
   children: React.ReactNode;
@@ -208,9 +210,10 @@ function ControlButton({
       <button
         type="button"
         onClick={onClick}
+        disabled={disabled}
         aria-label={label}
         title={label}
-        className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--danger)] text-[#1a0505] shadow-[0_8px_28px_-6px_var(--danger-border)] transition-transform duration-150 hover:brightness-110 active:scale-95"
+        className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--danger)] text-[#1a0505] shadow-[0_8px_28px_-6px_var(--danger-border)] transition-transform duration-150 hover:brightness-110 active:scale-95 disabled:opacity-50"
       >
         {children}
       </button>
@@ -221,9 +224,10 @@ function ControlButton({
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-label={label}
       title={label}
-      className="group flex flex-col items-center gap-1.5"
+      className="group flex flex-col items-center gap-1.5 disabled:opacity-50"
     >
       <span
         className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors ${
@@ -272,7 +276,25 @@ export function CallRoom({
     toggleSpeaker,
     endCall,
     playAudio,
+    screenSharing,
+    screenShareBusy,
+    canShareScreen,
+    remoteScreenStream,
+    toggleScreenShare,
   } = useCallSession({ call, selfId: self.id });
+
+  const screenVideoRef = useRef<HTMLVideoElement | null>(null);
+  useEffect(() => {
+    const element = screenVideoRef.current;
+    if (!element) return;
+    element.srcObject = remoteScreenStream;
+    if (remoteScreenStream) {
+      void element.play().catch(() => {
+        // Same autoplay caveat as the remote <audio> element — the room's
+        // own controls are already a user gesture away if this is blocked.
+      });
+    }
+  }, [remoteScreenStream]);
 
   useEffect(() => {
     attachRemoteAudio(audioRef.current);
@@ -377,6 +399,16 @@ export function CallRoom({
                 </svg>
                 Audio is end-to-end encrypted
               </span>
+              {/* The browser draws its own "you are sharing — Stop" bar
+                  outside this page entirely, which is real feedback but easy
+                  to miss on a phone-sized window — this is the same fact,
+                  restated where the rest of the call's status already is. */}
+              {screenSharing && (
+                <span className="mt-1 inline-flex items-center gap-1.5 text-[11px] text-[var(--accent)]">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--accent)]" />
+                  Sharing your screen
+                </span>
+              )}
             </div>
 
             <div className="flex items-center justify-between gap-2 sm:contents">
@@ -395,6 +427,29 @@ export function CallRoom({
               />
             </div>
           </div>
+
+          {/* The other side's shared screen. Sits above the avatar stage
+              rather than replacing it — captions and translation keep
+              running underneath a presentation exactly as they do under
+              plain conversation, which is the whole reason to build this as
+              an addition rather than a separate "video call" mode. */}
+          {remoteScreenStream && (
+            <div className="animate-rise mt-6 overflow-hidden rounded-2xl border border-[var(--border)] bg-black">
+              <video
+                ref={screenVideoRef}
+                muted
+                playsInline
+                className="max-h-[42vh] w-full object-contain"
+              />
+              <p className="flex items-center gap-1.5 border-t border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--muted)]">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <rect x="2" y="4" width="20" height="13" rx="2" />
+                  <path d="M8 21h8M12 17v4" />
+                </svg>
+                {other.displayName.split(" ")[0]} is sharing their screen
+              </p>
+            </div>
+          )}
 
           {/* Avatars, with the live level meters between and beside them. */}
           <div className="mt-8 flex items-center justify-center gap-4 sm:gap-5">
@@ -605,6 +660,33 @@ export function CallRoom({
                 )}
               </svg>
             </ControlButton>
+
+            {/* Hidden rather than disabled where the browser has no
+                screen-capture API at all — every iOS browser, WebKit
+                included — since there is no version of this that could ever
+                start working there, unlike a control waiting on permission
+                or a network condition. */}
+            {canShareScreen && (
+              <ControlButton
+                label={screenSharing ? "Stop sharing" : "Share screen"}
+                active={!screenSharing}
+                disabled={screenShareBusy}
+                onClick={() => void toggleScreenShare()}
+              >
+                {screenShareBusy ? (
+                  <span
+                    aria-hidden
+                    className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+                  />
+                ) : (
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="2" y="4" width="20" height="13" rx="2" />
+                    <path d="M8 21h8M12 17v4" />
+                    {screenSharing && <path d="M2 3l20 18" />}
+                  </svg>
+                )}
+              </ControlButton>
+            )}
 
             <ControlButton label="End call" tone="danger" onClick={() => void endCall()}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
