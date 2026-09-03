@@ -5,6 +5,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import {
   createAudioPeer,
+  isCameraSupported,
   isScreenShareSupported,
   type AudioPeer,
   type PeerSignal,
@@ -86,6 +87,13 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
   const [screenSharing, setScreenSharing] = useState(false);
   const [screenShareBusy, setScreenShareBusy] = useState(false);
   const [remoteScreenStream, setRemoteScreenStream] = useState<MediaStream | null>(null);
+  const [cameraOn, setCameraOn] = useState(false);
+  const [cameraBusy, setCameraBusy] = useState(false);
+  // The other side's camera, and my own captured preview — two separate
+  // streams, since each side only ever sees its own local capture directly
+  // and the other's over the connection.
+  const [remoteCameraStream, setRemoteCameraStream] = useState<MediaStream | null>(null);
+  const [localCameraStream, setLocalCameraStream] = useState<MediaStream | null>(null);
 
   // Snapshotted on the call row, so a later profile edit cannot change a
   // live room. Which side of the pair is "mine" depends on who called.
@@ -318,8 +326,17 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
             onRemoteScreenShare: (stream) => {
               if (!cancelled) setRemoteScreenStream(stream);
             },
+            onRemoteCamera: (stream) => {
+              if (!cancelled) setRemoteCameraStream(stream);
+            },
             onScreenShareEnded: () => {
               if (!cancelled) setScreenSharing(false);
+            },
+            onCameraEnded: () => {
+              if (!cancelled) {
+                setCameraOn(false);
+                setLocalCameraStream(null);
+              }
             },
             onConnectionStateChange: (state) => {
               if (cancelled) return;
@@ -416,6 +433,9 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
       setRemoteStream(null);
       setScreenSharing(false);
       setRemoteScreenStream(null);
+      setCameraOn(false);
+      setLocalCameraStream(null);
+      setRemoteCameraStream(null);
       void channel.unsubscribe();
       channelRef.current = null;
     };
@@ -597,6 +617,35 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
     }
   }, [screenShareBusy]);
 
+  /**
+   * Starts or stops this device's camera. Same busy-guard reasoning as
+   * toggleScreenShare.
+   */
+  const toggleCamera = useCallback(async () => {
+    const peer = peerRef.current;
+    if (!peer || cameraBusy) return;
+
+    setCameraBusy(true);
+    setError(null);
+
+    try {
+      if (peer.isCameraOn()) {
+        // onCameraEnded (wired above) clears cameraOn/localCameraStream —
+        // the same callback a lost device reaches, so this button and that
+        // case converge on one path instead of each keeping its own state.
+        await peer.stopCamera();
+      } else {
+        const stream = await peer.startCamera();
+        setCameraOn(true);
+        setLocalCameraStream(stream);
+      }
+    } catch (cameraError) {
+      setError(cameraError instanceof Error ? cameraError.message : "Could not start your camera.");
+    } finally {
+      setCameraBusy(false);
+    }
+  }, [cameraBusy]);
+
   const toggleSpeaker = useCallback(() => {
     const element = remoteAudioRef.current;
     if (!element) return;
@@ -640,5 +689,17 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
     /** The other side's shared screen, or null when they are not sharing. */
     remoteScreenStream,
     toggleScreenShare,
+    /** True while my own camera is on. */
+    cameraOn,
+    /** True while the camera is starting or stopping — guards the button. */
+    cameraBusy,
+    /** True everywhere getUserMedia is available — iOS Safari included,
+     * unlike canShareScreen. */
+    canUseCamera: isCameraSupported(),
+    /** My own captured camera, for a local self-preview tile. */
+    localCameraStream,
+    /** The other side's camera, or null when theirs is off. */
+    remoteCameraStream,
+    toggleCamera,
   };
 }

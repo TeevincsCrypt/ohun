@@ -281,6 +281,12 @@ export function CallRoom({
     canShareScreen,
     remoteScreenStream,
     toggleScreenShare,
+    cameraOn,
+    cameraBusy,
+    canUseCamera,
+    localCameraStream,
+    remoteCameraStream,
+    toggleCamera,
   } = useCallSession({ call, selfId: self.id });
 
   const screenVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -295,6 +301,30 @@ export function CallRoom({
       });
     }
   }, [remoteScreenStream]);
+
+  const remoteCameraVideoRef = useRef<HTMLVideoElement | null>(null);
+  useEffect(() => {
+    const element = remoteCameraVideoRef.current;
+    if (!element) return;
+    element.srcObject = remoteCameraStream;
+    if (remoteCameraStream) {
+      void element.play().catch(() => {
+        // Same autoplay caveat as above.
+      });
+    }
+  }, [remoteCameraStream]);
+
+  const localCameraVideoRef = useRef<HTMLVideoElement | null>(null);
+  useEffect(() => {
+    const element = localCameraVideoRef.current;
+    if (!element) return;
+    element.srcObject = localCameraStream;
+    if (localCameraStream) {
+      void element.play().catch(() => {
+        // Same autoplay caveat as above.
+      });
+    }
+  }, [localCameraStream]);
 
   useEffect(() => {
     attachRemoteAudio(audioRef.current);
@@ -409,6 +439,12 @@ export function CallRoom({
                   Sharing your screen
                 </span>
               )}
+              {cameraOn && (
+                <span className="mt-1 inline-flex items-center gap-1.5 text-[11px] text-[var(--accent)]">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--accent)]" />
+                  Camera on
+                </span>
+              )}
             </div>
 
             <div className="flex items-center justify-between gap-2 sm:contents">
@@ -447,6 +483,47 @@ export function CallRoom({
                   <path d="M8 21h8M12 17v4" />
                 </svg>
                 {other.displayName.split(" ")[0]} is sharing their screen
+              </p>
+            </div>
+          )}
+
+          {/* Camera video, same "addition, not a mode" reasoning as the
+              screen share panel above — captions keep running underneath.
+              The other side's camera is the main frame when it exists; my
+              own preview floats over a corner of it, or fills the frame on
+              its own while I am the only one with a camera on. */}
+          {(remoteCameraStream || localCameraStream) && (
+            <div className="animate-rise relative mt-6 overflow-hidden rounded-2xl border border-[var(--border)] bg-black">
+              {remoteCameraStream ? (
+                <video
+                  ref={remoteCameraVideoRef}
+                  playsInline
+                  className="max-h-[42vh] w-full object-contain"
+                />
+              ) : (
+                <video
+                  ref={localCameraVideoRef}
+                  playsInline
+                  muted
+                  className="max-h-[42vh] w-full scale-x-[-1] object-contain"
+                />
+              )}
+              {remoteCameraStream && localCameraStream && (
+                <video
+                  ref={localCameraVideoRef}
+                  playsInline
+                  muted
+                  className="absolute bottom-3 right-3 h-24 w-36 scale-x-[-1] rounded-lg border border-[var(--border)] object-cover sm:h-28 sm:w-44"
+                />
+              )}
+              <p className="flex items-center gap-1.5 border-t border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--muted)]">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M15 10l5-3v10l-5-3" />
+                  <rect x="2" y="6" width="13" height="12" rx="2" />
+                </svg>
+                {remoteCameraStream
+                  ? `${other.displayName.split(" ")[0]}'s camera`
+                  : `Your camera — waiting for ${other.displayName.split(" ")[0]} to turn theirs on`}
               </p>
             </div>
           )}
@@ -683,6 +760,28 @@ export function CallRoom({
                     <rect x="2" y="4" width="20" height="13" rx="2" />
                     <path d="M8 21h8M12 17v4" />
                     {screenSharing && <path d="M2 3l20 18" />}
+                  </svg>
+                )}
+              </ControlButton>
+            )}
+
+            {canUseCamera && (
+              <ControlButton
+                label={cameraOn ? "Turn camera off" : "Turn camera on"}
+                active={!cameraOn}
+                disabled={cameraBusy}
+                onClick={() => void toggleCamera()}
+              >
+                {cameraBusy ? (
+                  <span
+                    aria-hidden
+                    className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+                  />
+                ) : (
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M15 10l5-3v10l-5-3" />
+                    <rect x="2" y="6" width="13" height="12" rx="2" />
+                    {cameraOn && <path d="M2 3l20 18" />}
                   </svg>
                 )}
               </ControlButton>
