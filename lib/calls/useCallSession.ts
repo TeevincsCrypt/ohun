@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import { createAudioPeer, type AudioPeer, type PeerSignal } from "@/lib/webrtc/peer";
+import {
+  createAudioPeer,
+  isScreenShareSupported,
+  type AudioPeer,
+  type PeerSignal,
+} from "@/lib/webrtc/peer";
 import {
   useTranscriptionSession,
   type TranslationPayload,
@@ -78,6 +83,9 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
   // these.
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [screenSharing, setScreenSharing] = useState(false);
+  const [screenShareBusy, setScreenShareBusy] = useState(false);
+  const [remoteScreenStream, setRemoteScreenStream] = useState<MediaStream | null>(null);
 
   // Snapshotted on the call row, so a later profile edit cannot change a
   // live room. Which side of the pair is "mine" depends on who called.
@@ -294,36 +302,48 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
     async function begin() {
       let peer: AudioPeer;
       try {
-        peer = await createAudioPeer({
-          onSignal: send,
-          onRemoteStream: (stream) => {
-            if (!cancelled) setRemoteStream(stream);
-            if (remoteAudioRef.current) {
-              remoteAudioRef.current.srcObject = stream;
-              void remoteAudioRef.current.play().catch(() => {
-                // Autoplay can be blocked until a user gesture; the room's
-                // controls provide one.
-              });
-            }
+        peer = await createAudioPeer(
+          {
+            onSignal: send,
+            onRemoteStream: (stream) => {
+              if (!cancelled) setRemoteStream(stream);
+              if (remoteAudioRef.current) {
+                remoteAudioRef.current.srcObject = stream;
+                void remoteAudioRef.current.play().catch(() => {
+                  // Autoplay can be blocked until a user gesture; the room's
+                  // controls provide one.
+                });
+              }
+            },
+            onRemoteScreenShare: (stream) => {
+              if (!cancelled) setRemoteScreenStream(stream);
+            },
+            onScreenShareEnded: () => {
+              if (!cancelled) setScreenSharing(false);
+            },
+            onConnectionStateChange: (state) => {
+              if (cancelled) return;
+              if (state === "connected") {
+                setConnectionState("connected");
+                startedAtRef.current ??= Date.now();
+                void setCallStatus(call.id, "connected");
+              } else if (state === "failed") {
+                setConnectionState("failed");
+                setError("The audio connection failed.");
+              } else if (state === "disconnected") {
+                setConnectionState("connecting");
+              }
+            },
+            onError: (peerError) => {
+              if (cancelled) return;
+              setError(peerError.message);
+            },
           },
-          onConnectionStateChange: (state) => {
-            if (cancelled) return;
-            if (state === "connected") {
-              setConnectionState("connected");
-              startedAtRef.current ??= Date.now();
-              void setCallStatus(call.id, "connected");
-            } else if (state === "failed") {
-              setConnectionState("failed");
-              setError("The audio connection failed.");
-            } else if (state === "disconnected") {
-              setConnectionState("connecting");
-            }
-          },
-          onError: (peerError) => {
-            if (cancelled) return;
-            setError(peerError.message);
-          },
-        });
+          // The receiver did not place the call, so it is the one that
+          // yields if the two sides ever renegotiate at the same instant —
+          // see the AudioPeer doc comment in lib/webrtc/peer.ts.
+          { polite: !isCaller },
+        );
       } catch (peerError) {
         if (!cancelled) {
           setConnectionState("failed");
@@ -394,6 +414,8 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
       peerRef.current = null;
       setLocalStream(null);
       setRemoteStream(null);
+      setScreenSharing(false);
+      setRemoteScreenStream(null);
       void channel.unsubscribe();
       channelRef.current = null;
     };
@@ -504,6 +526,43 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
     setMicEnabled(next);
   }, []);
 
+  /**
+   * Starts or stops sharing this device's screen.
+   *
+   * The busy flag guards against a double-tap sending two starts in a row —
+   * peer.ts already serialises the renegotiations that would produce, but
+   * this stops it at the source and gives the button somewhere to show a
+   * pending state.
+   */
+  const toggleScreenShare = useCallback(async () => {
+    const peer = peerRef.current;
+    if (!peer || screenShareBusy) return;
+
+    setScreenShareBusy(true);
+    setError(null);
+
+    try {
+      if (peer.isSharingScreen()) {
+        // onScreenShareEnded (wired above) is what flips screenSharing
+        // back off — the same callback the browser's own "Stop sharing"
+        // control reaches, so this button and that control converge on one
+        // path instead of each keeping its own idea of the state.
+        await peer.stopScreenShare();
+      } else {
+        await peer.startScreenShare();
+        // startScreenShare() returns having done nothing, without
+        // throwing, if the user closed the browser's own picker without
+        // choosing a screen — isSharingScreen() is what actually happened,
+        // not an assumption that asking succeeded.
+        setScreenSharing(peer.isSharingScreen());
+      }
+    } catch (shareError) {
+      setError(shareError instanceof Error ? shareError.message : "Could not share your screen.");
+    } finally {
+      setScreenShareBusy(false);
+    }
+  }, [screenShareBusy]);
+
   const toggleSpeaker = useCallback(() => {
     const element = remoteAudioRef.current;
     if (!element) return;
@@ -537,5 +596,15 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
     endCall,
     /** Speak any caption line aloud on demand, in whichever language it is in. */
     playAudio,
+    /** True while sharing my own screen through this call. */
+    screenSharing,
+    /** True while a share is starting or stopping — guards the button. */
+    screenShareBusy,
+    /** False on any platform WebKit — iOS Safari included — where the
+     * browser has no screen-capture API to offer at all. */
+    canShareScreen: isScreenShareSupported(),
+    /** The other side's shared screen, or null when they are not sharing. */
+    remoteScreenStream,
+    toggleScreenShare,
   };
 }
