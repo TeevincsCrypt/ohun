@@ -18,6 +18,26 @@ export const metadata: Metadata = {
   title: "OHUN — Speak freely. Understand instantly.",
   description:
     "OHUN is a real-time voice language bridge. Speak naturally in your own language and be understood instantly in theirs.",
+  // Paired with app/manifest.ts. `capable: true` is Apple's own, older
+  // signal for "run this as an installed app, not a Safari tab" — some
+  // iOS versions still key off it alongside the manifest's `display`
+  // field, so both are set rather than relying on either alone.
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "OHUN",
+  },
+  // `appleWebApp.capable` above renders only the modern, unprefixed
+  // "mobile-web-app-capable" tag — iOS versions in the 16.4–17.x range are
+  // documented to key specifically off the older Apple-prefixed name
+  // instead, so it is added directly here. `other` is the supported escape
+  // hatch for a tag the Metadata API has no typed field for; a `<meta>`
+  // hand-written into this file's own <head> JSX does not reliably survive
+  // Next's metadata resolution and was empirically dropped from the
+  // rendered page when tried.
+  other: {
+    "apple-mobile-web-app-capable": "yes",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
