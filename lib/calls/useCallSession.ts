@@ -40,6 +40,13 @@ interface UseCallSessionOptions {
   call: Call;
   /** The signed-in user's id — decides who makes the offer. */
   selfId: string;
+  /**
+   * Turns the camera on by itself the moment the call connects, for the
+   * "Video call" entry point — as opposed to placing a voice call and
+   * reaching for the in-call camera toggle afterwards. Read once at mount;
+   * this never flips mid-call.
+   */
+  startWithVideo?: boolean;
 }
 
 /**
@@ -49,7 +56,7 @@ interface UseCallSessionOptions {
  * call's broadcast channel is what signals readiness, which avoids a race
  * where the offer is sent before the receiver has subscribed.
  */
-export function useCallSession({ call, selfId }: UseCallSessionOptions) {
+export function useCallSession({ call, selfId, startWithVideo = false }: UseCallSessionOptions) {
   const isCaller = call.callerId === selfId;
 
   const [connectionState, setConnectionState] = useState<CallConnectionState>(
@@ -645,6 +652,28 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
       setCameraBusy(false);
     }
   }, [cameraBusy]);
+
+  /**
+   * The "Video call" entry point's other half: startWithVideo just means
+   * "turn the camera on as soon as there is a connection to add it to" —
+   * everything else is the same toggleCamera() the in-call button calls, so
+   * this reaches it instead of duplicating startCamera()'s error handling
+   * and state updates. Ref-guarded, the same "run once" shape as the
+   * transcription-start effect below, since connectionState can pass
+   * through "connected" more than once in a call's lifetime (a renegotiation
+   * blip) and this must not retrigger on a later one.
+   */
+  const videoAutoStartedRef = useRef(false);
+  useEffect(() => {
+    if (!startWithVideo || videoAutoStartedRef.current) return;
+    if (connectionState !== "connected") return;
+    videoAutoStartedRef.current = true;
+    // toggleCamera's first step is a synchronous setState (the busy flag) —
+    // deferred a tick so that update is not attributed to this effect's own
+    // commit, same as React wants for any effect that reaches for a setter
+    // it does not own directly.
+    queueMicrotask(() => void toggleCamera());
+  }, [startWithVideo, connectionState, toggleCamera]);
 
   const toggleSpeaker = useCallback(() => {
     const element = remoteAudioRef.current;

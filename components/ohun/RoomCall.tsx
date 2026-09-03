@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useRoomSession } from "@/lib/rooms/useRoomSession";
 import { Avatar } from "./UserResult";
 import { AudioWaveform } from "./AudioWaveform";
@@ -36,6 +36,7 @@ function ParticipantTile({
   isSelf,
   connected,
   stream,
+  cameraStream,
   attachAudio,
 }: {
   participant: RoomParticipant;
@@ -43,15 +44,30 @@ function ParticipantTile({
   connected: boolean;
   /** Only ever set for yourself — your own mic, for the level meter. */
   stream: MediaStream | null;
+  /** This participant's camera, if it's on — mine or theirs. */
+  cameraStream: MediaStream | null;
   attachAudio: (peerId: string, element: HTMLAudioElement | null) => void;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     if (isSelf) return;
     attachAudio(participant.userId, audioRef.current);
     return () => attachAudio(participant.userId, null);
   }, [attachAudio, participant.userId, isSelf]);
+
+  useEffect(() => {
+    const element = videoRef.current;
+    if (!element) return;
+    element.srcObject = cameraStream;
+    if (cameraStream) {
+      void element.play().catch(() => {
+        // Autoplay can be blocked until a user gesture; the room's own
+        // controls are already one.
+      });
+    }
+  }, [cameraStream]);
 
   const color = isSelf ? "var(--accent)" : "var(--peer)";
   const waiting = participant.state === "invited";
@@ -63,14 +79,30 @@ function ParticipantTile({
       {!isSelf && <audio ref={audioRef} autoPlay playsInline />}
 
       <div className="relative flex items-center justify-center">
-        <span
-          aria-hidden
-          className="absolute h-[76px] w-[76px] rounded-full border-2 transition-colors duration-300"
-          style={{ borderColor: connected || isSelf ? color : "var(--border)" }}
-        />
-        <div className={waiting ? "opacity-50" : ""}>
-          <Avatar name={participant.profile.displayName} src={participant.profile.avatarUrl} />
-        </div>
+        {cameraStream ? (
+          <div
+            className="h-[76px] w-[76px] overflow-hidden rounded-full border-2 transition-colors duration-300"
+            style={{ borderColor: connected || isSelf ? color : "var(--border)" }}
+          >
+            <video
+              ref={videoRef}
+              playsInline
+              muted={isSelf}
+              className={`h-full w-full object-cover ${isSelf ? "scale-x-[-1]" : ""}`}
+            />
+          </div>
+        ) : (
+          <>
+            <span
+              aria-hidden
+              className="absolute h-[76px] w-[76px] rounded-full border-2 transition-colors duration-300"
+              style={{ borderColor: connected || isSelf ? color : "var(--border)" }}
+            />
+            <div className={waiting ? "opacity-50" : ""}>
+              <Avatar name={participant.profile.displayName} src={participant.profile.avatarUrl} />
+            </div>
+          </>
+        )}
       </div>
 
       <div className="min-w-0 text-center">
@@ -96,6 +128,9 @@ function ParticipantTile({
 export function RoomCall({ room: initialRoom, self }: { room: Room; self: Profile }) {
   const router = useRouter();
   const [showAdd, setShowAdd] = useState(false);
+  // Set by the "video" group-call button on People, mirroring CallRoom's
+  // startWithVideo — see the comment there.
+  const startWithVideo = useSearchParams().get("video") === "1";
 
   const {
     room,
@@ -118,7 +153,13 @@ export function RoomCall({ room: initialRoom, self }: { room: Room; self: Profil
     toggleSpeaker,
     leave,
     playAudio,
-  } = useRoomSession({ room: initialRoom, selfId: self.id });
+    cameraOn,
+    cameraBusy,
+    canUseCamera,
+    localCameraStream,
+    remoteCameraStreams,
+    toggleCamera,
+  } = useRoomSession({ room: initialRoom, selfId: self.id, startWithVideo });
 
   const seated = useMemo(() => activeParticipants(room), [room]);
   const seatedIds = useMemo(() => seated.map((participant) => participant.userId), [seated]);
@@ -211,6 +252,11 @@ export function RoomCall({ room: initialRoom, self }: { room: Room; self: Profil
                 isSelf={participant.userId === self.id}
                 connected={connectedPeers.includes(participant.userId)}
                 stream={participant.userId === self.id ? localStream : null}
+                cameraStream={
+                  participant.userId === self.id
+                    ? localCameraStream
+                    : (remoteCameraStreams.get(participant.userId) ?? null)
+                }
                 attachAudio={attachPeerAudio}
               />
             ))}
@@ -291,6 +337,45 @@ export function RoomCall({ room: initialRoom, self }: { room: Room; self: Profil
               </span>
               <span className="text-[11px] font-medium text-[var(--muted)]">Speaker</span>
             </button>
+
+            {/* Hidden entirely, not disabled, where getUserMedia doesn't
+                exist at all — matching the 1:1 call room's reasoning for
+                canShareScreen: there is no state that would ever make this
+                start working there. Unlike screen share, this is true
+                almost nowhere in practice, iOS Safari included. */}
+            {canUseCamera && (
+              <button
+                type="button"
+                onClick={() => void toggleCamera()}
+                disabled={cameraBusy}
+                aria-label={cameraOn ? "Turn camera off" : "Turn camera on"}
+                className="group flex flex-col items-center gap-1.5 disabled:opacity-50"
+              >
+                <span
+                  className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors ${
+                    !cameraOn
+                      ? "border-[var(--border)] bg-[var(--surface)] group-hover:bg-[var(--surface-raised)]"
+                      : "border-[var(--danger-border)] bg-[var(--danger-soft)] text-[var(--danger)]"
+                  }`}
+                >
+                  {cameraBusy ? (
+                    <span
+                      aria-hidden
+                      className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+                    />
+                  ) : (
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M15 10l5-3v10l-5-3" />
+                      <rect x="2" y="6" width="13" height="12" rx="2" />
+                      {cameraOn && <path d="M2 3l20 18" />}
+                    </svg>
+                  )}
+                </span>
+                <span className="text-[11px] font-medium text-[var(--muted)]">
+                  {cameraOn ? "Stop video" : "Video"}
+                </span>
+              </button>
+            )}
 
             <button
               type="button"

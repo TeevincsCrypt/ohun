@@ -187,14 +187,33 @@ export async function createAudioPeer(
   }
 
   /**
-   * Sends a fresh offer reflecting whatever tracks are on the connection
-   * right now. Chained onto itself rather than fired independently, so a
-   * stop immediately after a start (or a double click) applies in order
-   * instead of two createOffer() calls racing on setLocalDescription.
+   * Serializes every SDP-mutating operation on this connection — both the
+   * offers WE send (renegotiate) and the offer/answer signals we receive
+   * (acceptSignal) — so the two can never interleave on our own side.
+   * Without this, createOffer() awaiting while an incoming offer is
+   * processed concurrently could let our own setLocalDescription() land
+   * after the connection had already moved to have-remote-offer, which
+   * throws. This is a purely local race, distinct from — and additional
+   * to — the genuine cross-connection glare `options.polite` resolves
+   * (the other side's own independent offer arriving while ours is
+   * outstanding); caught directly via a real multi-connection mesh test
+   * (lib/webrtc/mesh.ts shares this exact pattern) where two participants
+   * renegotiating a shared connection in the same tick hit exactly this.
    */
-  let renegotiation: Promise<void> = Promise.resolve();
+  let queue: Promise<void> = Promise.resolve();
+  function enqueue(task: () => Promise<void>): Promise<void> {
+    queue = queue.then(task);
+    return queue;
+  }
+
+  /**
+   * Sends a fresh offer reflecting whatever tracks are on the connection
+   * right now. Queued rather than fired independently, so a stop
+   * immediately after a start (or a double click) applies in order, and so
+   * it cannot race an incoming offer/answer being handled at the same time.
+   */
   function renegotiate(): Promise<void> {
-    renegotiation = renegotiation.then(async () => {
+    return enqueue(async () => {
       try {
         const offer = await connection.createOffer();
         await connection.setLocalDescription(offer);
@@ -205,7 +224,6 @@ export async function createAudioPeer(
         );
       }
     });
-    return renegotiation;
   }
 
   // Remote audio arrives as its own stream; the room attaches it to an
@@ -336,60 +354,73 @@ export async function createAudioPeer(
     },
 
     async acceptSignal(signal) {
-      try {
-        if (signal.kind === "offer") {
-          // Learn any video roles this offer carries before applying it —
-          // ontrack can fire as part of setRemoteDescription below, and it
-          // reads remoteVideoRoles synchronously, so the map has to already
-          // be current by then.
-          if (signal.videoRoles) {
-            for (const [mid, role] of Object.entries(signal.videoRoles)) {
-              remoteVideoRoles.set(mid, role);
-            }
+      // ICE candidates aren't an SDP mutation and don't need to queue
+      // behind renegotiate()/offer-answer handling — they only need
+      // remoteDescription to already be set, which pendingCandidates
+      // already covers regardless of ordering.
+      if (signal.kind === "ice") {
+        try {
+          if (connection.remoteDescription) {
+            await connection.addIceCandidate(signal.candidate);
+          } else {
+            pendingCandidates.push(signal.candidate);
           }
-
-          // Glare: this side already has an offer outstanding (signalingState
-          // left "stable" the moment setLocalDescription ran for it) and now
-          // one has arrived from the other side too — both started
-          // renegotiating at once. See the AudioPeer doc comment for why
-          // this is now reachable and how politeness resolves it.
-          const collision = connection.signalingState !== "stable";
-          if (collision) {
-            if (!options.polite) {
-              // Ignore theirs; it is impolite to yield. Our own offer is
-              // still outstanding and will be answered once they receive it
-              // and see they must yield instead.
-              return;
-            }
-            await connection.setLocalDescription({ type: "rollback" });
-          }
-
-          await connection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
-          await flushCandidates();
-          const answer = await connection.createAnswer();
-          await connection.setLocalDescription(answer);
-          callbacks.onSignal({ kind: "answer", sdp: answer });
-          return;
+        } catch (error) {
+          console.error("[ohun] failed to add ICE candidate", error);
         }
+        return;
+      }
 
-        if (signal.kind === "answer") {
+      // Offer and answer both mutate signalling state, so they run through
+      // the same queue renegotiate() uses — see its doc comment above.
+      await enqueue(async () => {
+        try {
+          if (signal.kind === "offer") {
+            // Learn any video roles this offer carries before applying it —
+            // ontrack can fire as part of setRemoteDescription below, and it
+            // reads remoteVideoRoles synchronously, so the map has to
+            // already be current by then.
+            if (signal.videoRoles) {
+              for (const [mid, role] of Object.entries(signal.videoRoles)) {
+                remoteVideoRoles.set(mid, role);
+              }
+            }
+
+            // Glare: this side already has an offer outstanding
+            // (signalingState left "stable" the moment setLocalDescription
+            // ran for it) and now one has arrived from the other side too —
+            // both started renegotiating at once. See the AudioPeer doc
+            // comment for why this is now reachable and how politeness
+            // resolves it.
+            const collision = connection.signalingState !== "stable";
+            if (collision) {
+              if (!options.polite) {
+                // Ignore theirs; it is impolite to yield. Our own offer is
+                // still outstanding and will be answered once they receive
+                // it and see they must yield instead.
+                return;
+              }
+              await connection.setLocalDescription({ type: "rollback" });
+            }
+
+            await connection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+            await flushCandidates();
+            const answer = await connection.createAnswer();
+            await connection.setLocalDescription(answer);
+            callbacks.onSignal({ kind: "answer", sdp: answer });
+            return;
+          }
+
           // Ignore a duplicate answer — re-applying in `stable` throws.
           if (connection.signalingState === "stable") return;
           await connection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
           await flushCandidates();
-          return;
+        } catch (error) {
+          callbacks.onError(
+            new PeerError(`Connection negotiation failed: ${(error as Error).message}`),
+          );
         }
-
-        if (connection.remoteDescription) {
-          await connection.addIceCandidate(signal.candidate);
-        } else {
-          pendingCandidates.push(signal.candidate);
-        }
-      } catch (error) {
-        callbacks.onError(
-          new PeerError(`Connection negotiation failed: ${(error as Error).message}`),
-        );
-      }
+      });
     },
 
     setMicrophoneEnabled(enabled) {

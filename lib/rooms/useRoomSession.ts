@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { createAudioMesh, type AudioMesh, type MeshSignal } from "@/lib/webrtc/mesh";
+// Camera support is a pure browser-capability check with nothing mesh- or
+// peer-specific about it — defined once in peer.ts rather than duplicated.
+import { isCameraSupported } from "@/lib/webrtc/peer";
 import { useTranscriptionSession } from "@/lib/assemblyai/useTranscriptionSession";
 import { installSpeechPrimer } from "@/lib/audio/player";
 import { SpeechQueue } from "@/lib/audio/queue";
@@ -32,6 +35,15 @@ interface CaptionMessage {
 interface UseRoomSessionOptions {
   room: Room;
   selfId: string;
+  /**
+   * Turns the camera on by itself as soon as the mesh's microphone capture
+   * is ready — for the "video" group-call entry point, mirroring
+   * useCallSession's startWithVideo. It does not wait for anyone else to
+   * join: your own camera comes on immediately, and mesh.ts's createPeer
+   * already attaches it to every connection made afterwards, so late
+   * arrivals see it without you doing anything further.
+   */
+  startWithVideo?: boolean;
 }
 
 /**
@@ -42,7 +54,11 @@ interface UseRoomSessionOptions {
  * and each browser transcribes only its own microphone. Only text crosses
  * the network — never synthesized audio.
  */
-export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOptions) {
+export function useRoomSession({
+  room: initialRoom,
+  selfId,
+  startWithVideo = false,
+}: UseRoomSessionOptions) {
   const [room, setRoom] = useState<Room>(initialRoom);
   const [micEnabled, setMicEnabled] = useState(true);
   const [speakerEnabled, setSpeakerEnabled] = useState(true);
@@ -53,6 +69,13 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [startedAt] = useState(() => Date.now());
   const [durationSeconds, setDurationSeconds] = useState(0);
+  const [cameraOn, setCameraOn] = useState(false);
+  const [cameraBusy, setCameraBusy] = useState(false);
+  const [localCameraStream, setLocalCameraStream] = useState<MediaStream | null>(null);
+  /** Keyed by peer id — a group call can have several cameras on at once. */
+  const [remoteCameraStreams, setRemoteCameraStreams] = useState<Map<string, MediaStream>>(
+    new Map(),
+  );
 
   const meshRef = useRef<AudioMesh | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -218,6 +241,9 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
       void channelRef.current.unsubscribe();
       channelRef.current = null;
     }
+    setCameraOn(false);
+    setLocalCameraStream(null);
+    setRemoteCameraStreams(new Map());
     await setParticipantState(initialRoom.id, "left");
   }, [initialRoom.id]);
 
@@ -258,6 +284,20 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
               element.srcObject = stream;
               void element.play().catch(() => {});
             }
+          },
+          onRemoteCamera: (peerId, stream) => {
+            if (cancelled) return;
+            setRemoteCameraStreams((current) => {
+              const next = new Map(current);
+              if (stream) next.set(peerId, stream);
+              else next.delete(peerId);
+              return next;
+            });
+          },
+          onCameraEnded: () => {
+            if (cancelled) return;
+            setCameraOn(false);
+            setLocalCameraStream(null);
           },
           onPeerStateChange: (peerId, state) => {
             if (cancelled) return;
@@ -333,6 +373,9 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
       meshRef.current = null;
       queue.stop();
       speechRef.current = null;
+      setCameraOn(false);
+      setLocalCameraStream(null);
+      setRemoteCameraStreams(new Map());
       void channel.unsubscribe();
       channelRef.current = null;
     };
@@ -417,6 +460,54 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
     setSpeakerEnabled(next);
   }, [speakerEnabled]);
 
+  /**
+   * Starts or stops this device's camera for everyone in the room. Same
+   * busy-guard reasoning as useCallSession's toggleCamera — the mesh itself
+   * already serialises the renegotiations that a rapid double-tap would
+   * produce, but this stops it at the source too and gives the button
+   * somewhere to show a pending state.
+   */
+  const toggleCamera = useCallback(async () => {
+    const mesh = meshRef.current;
+    if (!mesh || cameraBusy) return;
+
+    setCameraBusy(true);
+    setError(null);
+
+    try {
+      if (mesh.isCameraOn()) {
+        // onCameraEnded (wired above) clears cameraOn/localCameraStream —
+        // the same callback a lost device reaches, so this button and that
+        // case converge on one path instead of each keeping its own state.
+        await mesh.stopCamera();
+      } else {
+        const stream = await mesh.startCamera();
+        setCameraOn(true);
+        setLocalCameraStream(stream);
+      }
+    } catch (cameraError) {
+      setError(cameraError instanceof Error ? cameraError.message : "Could not start your camera.");
+    } finally {
+      setCameraBusy(false);
+    }
+  }, [cameraBusy]);
+
+  /**
+   * The "video" group-call entry point's other half — see startWithVideo.
+   * Ref-guarded the same way as useCallSession's equivalent effect, since
+   * this must fire exactly once even if localStream's identity changes
+   * again later in the call.
+   */
+  const videoAutoStartedRef = useRef(false);
+  useEffect(() => {
+    if (!startWithVideo || videoAutoStartedRef.current) return;
+    if (!localStream) return;
+    videoAutoStartedRef.current = true;
+    // toggleCamera's first step is a synchronous setState (the busy flag) —
+    // deferred a tick for the same reason as useCallSession's equivalent.
+    queueMicrotask(() => void toggleCamera());
+  }, [startWithVideo, localStream, toggleCamera]);
+
   const others = useMemo(
     () => activeParticipants(room).filter((participant) => participant.userId !== selfId),
     [room, selfId],
@@ -445,5 +536,16 @@ export function useRoomSession({ room: initialRoom, selfId }: UseRoomSessionOpti
     leave,
     /** Speak any caption line aloud on demand, in whichever language it is in. */
     playAudio,
+    /** True while my own camera is on. */
+    cameraOn,
+    /** True while the camera is starting or stopping — guards the button. */
+    cameraBusy,
+    /** True everywhere getUserMedia is available — iOS Safari included. */
+    canUseCamera: isCameraSupported(),
+    /** My own captured camera, for a local self-preview tile. */
+    localCameraStream,
+    /** Everyone else's camera, keyed by their user id. */
+    remoteCameraStreams,
+    toggleCamera,
   };
 }

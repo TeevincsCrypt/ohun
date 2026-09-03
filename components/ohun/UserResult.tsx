@@ -64,6 +64,7 @@ export function PresenceTag({ online }: { online: boolean }) {
 export function UserResult({
   profile,
   onCall,
+  onVideoCall,
   onSchedule,
   onMessage,
   isOpeningChat = false,
@@ -71,6 +72,12 @@ export function UserResult({
 }: {
   profile: Profile;
   onCall: (profile: Profile) => void;
+  /**
+   * Starts a call with the camera already on, rather than a voice call the
+   * camera is toggled on inside afterwards. Optional so callers that have
+   * no camera-first flow (recent-calls redial, say) don't need one.
+   */
+  onVideoCall?: (profile: Profile) => void;
   onSchedule?: (profile: Profile) => void;
   /** Opens (or reopens) the translated chat thread with this person. */
   onMessage?: (profile: Profile) => void;
@@ -129,6 +136,20 @@ export function UserResult({
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <rect x="3" y="5" width="18" height="16" rx="2" />
                 <path d="M3 10h18M8 3v4M16 3v4" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
+          {onVideoCall && (
+            <button
+              type="button"
+              onClick={() => onVideoCall(profile)}
+              aria-label={`Video call ${profile.displayName}`}
+              title="Video call"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-[var(--border)] text-[var(--muted)] transition-colors hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 10l5-3v10l-5-3" />
+                <rect x="2" y="6" width="13" height="12" rx="2" />
               </svg>
             </button>
           )}

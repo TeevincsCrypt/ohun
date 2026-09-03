@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallSession } from "@/lib/calls/useCallSession";
 import { Avatar } from "./UserResult";
 import { AudioWaveform } from "./AudioWaveform";
@@ -256,6 +256,12 @@ export function CallRoom({
 }) {
   const router = useRouter();
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Set by the "Video call" button (as opposed to "Call"), so the camera
+  // comes on by itself once connected instead of requiring the in-call
+  // toggle. Read once — the query string cannot meaningfully change under
+  // this page — via useSearchParams rather than threading it through the
+  // server page component, since only this client component needs it.
+  const startWithVideo = useSearchParams().get("video") === "1";
 
   const {
     connectionState,
@@ -287,7 +293,7 @@ export function CallRoom({
     localCameraStream,
     remoteCameraStream,
     toggleCamera,
-  } = useCallSession({ call, selfId: self.id });
+  } = useCallSession({ call, selfId: self.id, startWithVideo });
 
   const screenVideoRef = useRef<HTMLVideoElement | null>(null);
   useEffect(() => {
@@ -412,7 +418,21 @@ export function CallRoom({
 
       <main className="relative z-10 mx-auto grid w-full min-h-0 max-w-[1180px] flex-1 gap-4 px-3 py-4 sm:gap-5 sm:px-5 sm:py-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[minmax(0,1fr)]">
         {/* --- stage ------------------------------------------------------ */}
-        <section className="card-lit animate-rise flex min-h-0 min-w-0 flex-col rounded-3xl p-4 sm:p-6">
+        {/* overflow-y-auto: on desktop this column sits in a viewport-height
+            layout with everything else in the call — status row, avatars,
+            names, utterance cards, controls — stacked above and below the
+            video panels below. Without a scroll affordance here, a flex
+            column's default flex-shrink squeezes EVERY child to fit that
+            fixed height, the video panel included — and since its own
+            content (the <video>) has no minimum size of its own, it was the
+            one that gave, getting crushed down to just its caption bar with
+            the video clipped to a sliver. Verified directly: a faithful
+            static reproduction of this exact layout at a real 1280x720
+            viewport rendered the panel at 48px tall (just the caption row)
+            with the actual video cropped out entirely; adding shrink-0 to
+            the panels below plus overflow-y-auto here (so anything that
+            still doesn't fit scrolls instead of being crushed) fixed it. */}
+        <section className="card-lit animate-rise flex min-h-0 min-w-0 flex-col overflow-y-auto rounded-3xl p-4 sm:p-6">
           {/* On a phone the timer takes its own line above the two speaker
               pills — all three side by side collide at 390px. sm:contents
               dissolves the pill wrapper at wider sizes so the three sit in
@@ -470,7 +490,7 @@ export function CallRoom({
               plain conversation, which is the whole reason to build this as
               an addition rather than a separate "video call" mode. */}
           {remoteScreenStream && (
-            <div className="animate-rise mt-6 overflow-hidden rounded-2xl border border-[var(--border)] bg-black">
+            <div className="animate-rise mt-6 shrink-0 overflow-hidden rounded-2xl border border-[var(--border)] bg-black">
               <video
                 ref={screenVideoRef}
                 muted
@@ -493,7 +513,7 @@ export function CallRoom({
               own preview floats over a corner of it, or fills the frame on
               its own while I am the only one with a camera on. */}
           {(remoteCameraStream || localCameraStream) && (
-            <div className="animate-rise relative mt-6 overflow-hidden rounded-2xl border border-[var(--border)] bg-black">
+            <div className="animate-rise relative mt-6 shrink-0 overflow-hidden rounded-2xl border border-[var(--border)] bg-black">
               {remoteCameraStream ? (
                 <video
                   ref={remoteCameraVideoRef}
