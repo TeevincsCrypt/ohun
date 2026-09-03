@@ -485,13 +485,47 @@ export function useCallSession({ call, selfId }: UseCallSessionOptions) {
   const startTranscription = transcription.start;
   const stopTranscription = transcription.stop;
 
+  /**
+   * Started once and left running, rather than torn down and rebuilt on
+   * every value connectionState passes through.
+   *
+   * connectionState used to be this effect's dependency directly, which
+   * meant ANY change away from "connected" — including a one-frame
+   * "connecting" that resolves back to "connected" a moment later —
+   * restarted the whole AssemblyAI session and the mic recorder from
+   * scratch. Screen sharing is what actually surfaces this: starting or
+   * stopping a share renegotiates the connection, and on some networks that
+   * renegotiation is enough to trip a transient connectionState blip even
+   * though the call itself never actually drops. The AssemblyAI layer
+   * already has its own reconnect logic for a real network interruption —
+   * see useTranscriptionSession's reconnect() — tearing the whole session
+   * down here on a blip that resolves itself bypassed that resilience
+   * instead of using it, and did so reacting to the wrong signal: this
+   * call's own connectivity, not the transcription session's.
+   *
+   * startedRef, not state: this only ever needs to gate a side effect, and
+   * the value itself is never rendered.
+   */
+  const transcriptionStartedRef = useRef(false);
+
   useEffect(() => {
+    if (transcriptionStartedRef.current) return;
     if (connectionState !== "connected" || !localStream) return;
+    transcriptionStartedRef.current = true;
     void startTranscription();
+  }, [connectionState, localStream, startTranscription]);
+
+  // Stopping is genuinely tied to the call ending, not to connectionState —
+  // a separate effect whose only dependency is stopTranscription itself
+  // (stable for the component's lifetime), so its cleanup runs on unmount
+  // and nowhere else.
+  useEffect(() => {
     return () => {
+      if (!transcriptionStartedRef.current) return;
+      transcriptionStartedRef.current = false;
       void stopTranscription();
     };
-  }, [connectionState, localStream, startTranscription, stopTranscription]);
+  }, [stopTranscription]);
 
   // --- duration ------------------------------------------------------------
   useEffect(() => {
