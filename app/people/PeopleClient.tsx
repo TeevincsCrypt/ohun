@@ -115,7 +115,10 @@ export function PeopleClient({ self }: { self: Profile }) {
   );
 
   const handleCall = useCallback(
-    async (profile: Pick<Profile, "id" | "displayName">): Promise<string | null> => {
+    async (
+      profile: Pick<Profile, "id" | "displayName">,
+      withVideo = false,
+    ): Promise<string | null> => {
       setCallingId(profile.id);
       setError(null);
 
@@ -128,24 +131,41 @@ export function PeopleClient({ self }: { self: Profile }) {
         return message;
       }
 
-      router.push(`/call/${callId}`);
+      // The query param is read client-side in CallRoom, which auto-enables
+      // the camera once connected — no server-side "call type" needed, since
+      // this is purely which control the caller tapped, not persisted state.
+      router.push(withVideo ? `/call/${callId}?video=1` : `/call/${callId}`);
       return null;
     },
     [router],
   );
 
-  /** Opens an empty group call; people are added from inside it. */
-  const startGroupCall = useCallback(async () => {
-    setStartingRoom(true);
-    setError(null);
-    const { roomId, error: roomError } = await createRoom();
-    if (roomError || !roomId) {
-      setError(roomError ?? "Could not start the call.");
-      setStartingRoom(false);
-      return;
-    }
-    router.push(`/room/${roomId}`);
-  }, [router]);
+  const handleVideoCall = useCallback(
+    (profile: Pick<Profile, "id" | "displayName">) => void handleCall(profile, true),
+    [handleCall],
+  );
+
+  /**
+   * Opens an empty group call; people are added from inside it.
+   *
+   * Same withVideo convenience as handleCall: the query param is read
+   * client-side in RoomCall, which auto-enables the camera once the mesh is
+   * up, so starting a video group call needs no separate server action.
+   */
+  const startGroupCall = useCallback(
+    async (withVideo = false) => {
+      setStartingRoom(true);
+      setError(null);
+      const { roomId, error: roomError } = await createRoom();
+      if (roomError || !roomId) {
+        setError(roomError ?? "Could not start the call.");
+        setStartingRoom(false);
+        return;
+      }
+      router.push(withVideo ? `/room/${roomId}?video=1` : `/room/${roomId}`);
+    },
+    [router],
+  );
 
   return (
     <>
@@ -192,19 +212,34 @@ export function PeopleClient({ self }: { self: Profile }) {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => void startGroupCall()}
-          disabled={startingRoom}
-          className="flex items-center justify-center gap-2 rounded-xl border border-[var(--accent-border)] bg-[var(--accent-soft)] px-4 py-3 text-sm font-medium text-[var(--accent)] transition-opacity hover:opacity-85 disabled:opacity-50"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M16 20v-1a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v1" />
-            <circle cx="9.5" cy="8" r="3" />
-            <path d="M18 8h4M20 6v4" />
-          </svg>
-          {startingRoom ? "Starting…" : "Start a group call"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void startGroupCall()}
+            disabled={startingRoom}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[var(--accent-border)] bg-[var(--accent-soft)] px-4 py-3 text-sm font-medium text-[var(--accent)] transition-opacity hover:opacity-85 disabled:opacity-50"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M16 20v-1a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v1" />
+              <circle cx="9.5" cy="8" r="3" />
+              <path d="M18 8h4M20 6v4" />
+            </svg>
+            {startingRoom ? "Starting…" : "Start a group call"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void startGroupCall(true)}
+            disabled={startingRoom}
+            aria-label="Start a group video call"
+            title="Start with video"
+            className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-xl border border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent)] transition-opacity hover:opacity-85 disabled:opacity-50"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 10l5-3v10l-5-3" />
+              <rect x="2" y="6" width="13" height="12" rx="2" />
+            </svg>
+          </button>
+        </div>
 
         {error && (
           <Pill tone="error" className="w-full justify-center text-center">
@@ -218,6 +253,7 @@ export function PeopleClient({ self }: { self: Profile }) {
               key={profile.id}
               profile={profile}
               onCall={handleCall}
+              onVideoCall={handleVideoCall}
               onMessage={handleMessage}
               isOpeningChat={openingChatId === profile.id}
               onSchedule={setScheduling}

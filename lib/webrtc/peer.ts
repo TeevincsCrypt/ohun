@@ -9,7 +9,20 @@ import { fetchIceConfig } from "./client";
  */
 
 export type PeerSignal =
-  | { kind: "offer"; sdp: RTCSessionDescriptionInit }
+  | {
+      kind: "offer";
+      sdp: RTCSessionDescriptionInit;
+      /**
+       * Which role each video m-line (by mid) plays on the sender's side —
+       * "camera" or "screen". The call now has two possible sources of
+       * video, so `ontrack` can no longer assume any video track it
+       * receives is a screen share; this rides alongside the offer that
+       * adds or changes a video track so the receiver learns the role
+       * before that track's `ontrack` event fires. Absent entirely on an
+       * offer that touches no video track.
+       */
+      videoRoles?: Record<string, "camera" | "screen">;
+    }
   | { kind: "answer"; sdp: RTCSessionDescriptionInit }
   | { kind: "ice"; candidate: RTCIceCandidateInit };
 
@@ -19,10 +32,12 @@ export interface PeerCallbacks {
   onRemoteStream: (stream: MediaStream) => void;
   /**
    * Fired when the other side's shared screen arrives, and again with null
-   * when they stop sharing. Distinguished from onRemoteStream by kind — the
-   * call has no other source of video, so any video track is a screen.
+   * when they stop sharing. Distinguished from a camera by the role learned
+   * from the offer's videoRoles — see PeerSignal.
    */
   onRemoteScreenShare: (stream: MediaStream | null) => void;
+  /** Same shape as onRemoteScreenShare, for the other side's camera. */
+  onRemoteCamera: (stream: MediaStream | null) => void;
   /**
    * Fired whenever OUR OWN screen share ends, for any reason — including
    * the browser's own "Stop sharing" control, which the caller has no other
@@ -31,6 +46,8 @@ export interface PeerCallbacks {
    * its own tap or the browser's.
    */
   onScreenShareEnded: () => void;
+  /** Same, for our own camera — covers the device being unplugged mid-call. */
+  onCameraEnded: () => void;
   onConnectionStateChange: (state: RTCPeerConnectionState) => void;
   onError: (error: Error) => void;
 }
@@ -62,6 +79,16 @@ export interface AudioPeer {
   /** Stops sharing and removes the track. Renegotiates. */
   stopScreenShare: () => Promise<void>;
   isSharingScreen: () => boolean;
+  /**
+   * Captures the front-facing camera and adds it to the call. Renegotiates.
+   * Returns the captured stream so the caller can render a local preview —
+   * unlike the microphone's localStream, this one is created and destroyed
+   * per toggle rather than living for the whole call.
+   */
+  startCamera: () => Promise<MediaStream>;
+  /** Stops the camera and removes the track. Renegotiates. */
+  stopCamera: () => Promise<void>;
+  isCameraOn: () => boolean;
   close: () => void;
   /** True when TURN relay was available for this connection. */
   hasTurn: boolean;
@@ -82,6 +109,20 @@ export function isScreenShareSupported(): boolean {
   return (
     typeof navigator !== "undefined" &&
     typeof navigator.mediaDevices?.getDisplayMedia === "function"
+  );
+}
+
+/**
+ * Whether this browser can capture a camera at all. Unlike screen share,
+ * this is `true` on iOS Safari — `getUserMedia({ video: true })` has been
+ * supported there for years, since it is the same API a plain photo/video
+ * input already relies on. This is the actual reach difference from screen
+ * share: camera video call works everywhere microphone-only calling does.
+ */
+export function isCameraSupported(): boolean {
+  return (
+    typeof navigator !== "undefined" &&
+    typeof navigator.mediaDevices?.getUserMedia === "function"
   );
 }
 
@@ -117,38 +158,91 @@ export async function createAudioPeer(
 
   let screenStream: MediaStream | null = null;
   let screenSender: RTCRtpSender | null = null;
+  let cameraStream: MediaStream | null = null;
+  let cameraSender: RTCRtpSender | null = null;
+
+  /**
+   * Which role each remote video m-line plays, keyed by
+   * `RTCRtpTransceiver.mid`. Learned from the `videoRoles` map an incoming
+   * offer carries, before that offer is applied — mids are assigned once a
+   * transceiver is created and stay stable across later renegotiations, so
+   * entries here are never removed, only added to.
+   */
+  const remoteVideoRoles = new Map<string, "camera" | "screen">();
+
+  /**
+   * Which role each of OUR OWN outgoing video tracks plays, by mid — sent
+   * alongside the next offer so the other side's ontrack can route it
+   * correctly. Only transceivers with an assigned mid (i.e. after
+   * setLocalDescription has run at least once for them) can appear here.
+   */
+  function localVideoRoles(): Record<string, "camera" | "screen"> | undefined {
+    const roles: Record<string, "camera" | "screen"> = {};
+    for (const transceiver of connection.getTransceivers()) {
+      if (!transceiver.mid) continue;
+      if (transceiver.sender === screenSender) roles[transceiver.mid] = "screen";
+      else if (transceiver.sender === cameraSender) roles[transceiver.mid] = "camera";
+    }
+    return Object.keys(roles).length > 0 ? roles : undefined;
+  }
+
+  /**
+   * Serializes every SDP-mutating operation on this connection — both the
+   * offers WE send (renegotiate) and the offer/answer signals we receive
+   * (acceptSignal) — so the two can never interleave on our own side.
+   * Without this, createOffer() awaiting while an incoming offer is
+   * processed concurrently could let our own setLocalDescription() land
+   * after the connection had already moved to have-remote-offer, which
+   * throws. This is a purely local race, distinct from — and additional
+   * to — the genuine cross-connection glare `options.polite` resolves
+   * (the other side's own independent offer arriving while ours is
+   * outstanding); caught directly via a real multi-connection mesh test
+   * (lib/webrtc/mesh.ts shares this exact pattern) where two participants
+   * renegotiating a shared connection in the same tick hit exactly this.
+   */
+  let queue: Promise<void> = Promise.resolve();
+  function enqueue(task: () => Promise<void>): Promise<void> {
+    queue = queue.then(task);
+    return queue;
+  }
 
   /**
    * Sends a fresh offer reflecting whatever tracks are on the connection
-   * right now. Chained onto itself rather than fired independently, so a
-   * stop immediately after a start (or a double click) applies in order
-   * instead of two createOffer() calls racing on setLocalDescription.
+   * right now. Queued rather than fired independently, so a stop
+   * immediately after a start (or a double click) applies in order, and so
+   * it cannot race an incoming offer/answer being handled at the same time.
    */
-  let renegotiation: Promise<void> = Promise.resolve();
   function renegotiate(): Promise<void> {
-    renegotiation = renegotiation.then(async () => {
+    return enqueue(async () => {
       try {
         const offer = await connection.createOffer();
         await connection.setLocalDescription(offer);
-        callbacks.onSignal({ kind: "offer", sdp: offer });
+        callbacks.onSignal({ kind: "offer", sdp: offer, videoRoles: localVideoRoles() });
       } catch (error) {
         callbacks.onError(
           new PeerError(`Could not update the connection: ${(error as Error).message}`),
         );
       }
     });
-    return renegotiation;
   }
 
   // Remote audio arrives as its own stream; the room attaches it to an
   // <audio> element.
   const remoteStream = new MediaStream();
   connection.ontrack = (event) => {
-    // The call never sends video of its own, so any video track that
-    // arrives is unambiguously the other side's shared screen.
     if (event.track.kind === "video") {
-      const screenStream = new MediaStream([event.track]);
-      callbacks.onRemoteScreenShare(screenStream);
+      // The offer that added this track is expected to have carried its
+      // role already — acceptSignal merges videoRoles into
+      // remoteVideoRoles before applying the offer's SDP, so the lookup
+      // below runs after that merge. "screen" is the fallback for the
+      // unexpected case of a mid with no known role, matching this app's
+      // behaviour before cameras existed.
+      const mid = event.transceiver.mid;
+      const role = (mid && remoteVideoRoles.get(mid)) ?? "screen";
+      const dispatch = role === "camera" ? callbacks.onRemoteCamera : callbacks.onRemoteScreenShare;
+
+      const videoStream = new MediaStream([event.track]);
+      dispatch(videoStream);
 
       // `onended` looked like the right event and is not: it fires when a
       // receiver's track is torn down entirely (the connection closing, or
@@ -170,7 +264,7 @@ export async function createAudioPeer(
       const settle = () => {
         if (settled) return;
         settled = true;
-        callbacks.onRemoteScreenShare(null);
+        dispatch(null);
       };
       event.track.onmute = settle;
       event.track.onended = settle;
@@ -229,6 +323,20 @@ export async function createAudioPeer(
     await renegotiate();
   }
 
+  // Same reasoning as stopScreenShare above, and the same requirement to be
+  // a plain function reachable from a captured track's own onended.
+  async function stopCamera() {
+    if (!cameraStream || !cameraSender) return;
+
+    connection.removeTrack(cameraSender);
+    cameraStream.getTracks().forEach((track) => track.stop());
+    cameraStream = null;
+    cameraSender = null;
+
+    callbacks.onCameraEnded();
+    await renegotiate();
+  }
+
   return {
     hasTurn,
     localStream,
@@ -246,50 +354,73 @@ export async function createAudioPeer(
     },
 
     async acceptSignal(signal) {
-      try {
-        if (signal.kind === "offer") {
-          // Glare: this side already has an offer outstanding (signalingState
-          // left "stable" the moment setLocalDescription ran for it) and now
-          // one has arrived from the other side too — both started
-          // renegotiating at once. See the AudioPeer doc comment for why
-          // this is now reachable and how politeness resolves it.
-          const collision = connection.signalingState !== "stable";
-          if (collision) {
-            if (!options.polite) {
-              // Ignore theirs; it is impolite to yield. Our own offer is
-              // still outstanding and will be answered once they receive it
-              // and see they must yield instead.
-              return;
+      // ICE candidates aren't an SDP mutation and don't need to queue
+      // behind renegotiate()/offer-answer handling — they only need
+      // remoteDescription to already be set, which pendingCandidates
+      // already covers regardless of ordering.
+      if (signal.kind === "ice") {
+        try {
+          if (connection.remoteDescription) {
+            await connection.addIceCandidate(signal.candidate);
+          } else {
+            pendingCandidates.push(signal.candidate);
+          }
+        } catch (error) {
+          console.error("[ohun] failed to add ICE candidate", error);
+        }
+        return;
+      }
+
+      // Offer and answer both mutate signalling state, so they run through
+      // the same queue renegotiate() uses — see its doc comment above.
+      await enqueue(async () => {
+        try {
+          if (signal.kind === "offer") {
+            // Learn any video roles this offer carries before applying it —
+            // ontrack can fire as part of setRemoteDescription below, and it
+            // reads remoteVideoRoles synchronously, so the map has to
+            // already be current by then.
+            if (signal.videoRoles) {
+              for (const [mid, role] of Object.entries(signal.videoRoles)) {
+                remoteVideoRoles.set(mid, role);
+              }
             }
-            await connection.setLocalDescription({ type: "rollback" });
+
+            // Glare: this side already has an offer outstanding
+            // (signalingState left "stable" the moment setLocalDescription
+            // ran for it) and now one has arrived from the other side too —
+            // both started renegotiating at once. See the AudioPeer doc
+            // comment for why this is now reachable and how politeness
+            // resolves it.
+            const collision = connection.signalingState !== "stable";
+            if (collision) {
+              if (!options.polite) {
+                // Ignore theirs; it is impolite to yield. Our own offer is
+                // still outstanding and will be answered once they receive
+                // it and see they must yield instead.
+                return;
+              }
+              await connection.setLocalDescription({ type: "rollback" });
+            }
+
+            await connection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+            await flushCandidates();
+            const answer = await connection.createAnswer();
+            await connection.setLocalDescription(answer);
+            callbacks.onSignal({ kind: "answer", sdp: answer });
+            return;
           }
 
-          await connection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
-          await flushCandidates();
-          const answer = await connection.createAnswer();
-          await connection.setLocalDescription(answer);
-          callbacks.onSignal({ kind: "answer", sdp: answer });
-          return;
-        }
-
-        if (signal.kind === "answer") {
           // Ignore a duplicate answer — re-applying in `stable` throws.
           if (connection.signalingState === "stable") return;
           await connection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
           await flushCandidates();
-          return;
+        } catch (error) {
+          callbacks.onError(
+            new PeerError(`Connection negotiation failed: ${(error as Error).message}`),
+          );
         }
-
-        if (connection.remoteDescription) {
-          await connection.addIceCandidate(signal.candidate);
-        } else {
-          pendingCandidates.push(signal.candidate);
-        }
-      } catch (error) {
-        callbacks.onError(
-          new PeerError(`Connection negotiation failed: ${(error as Error).message}`),
-        );
-      }
+      });
     },
 
     setMicrophoneEnabled(enabled) {
@@ -351,12 +482,59 @@ export async function createAudioPeer(
       return screenStream !== null;
     },
 
+    async startCamera() {
+      if (cameraStream) return cameraStream;
+
+      let captured: MediaStream;
+      try {
+        // audio: false — same reasoning as screen share: this call already
+        // carries this device's microphone on its own track.
+        captured = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user" },
+          audio: false,
+        });
+      } catch (error) {
+        throw new PeerError(
+          error instanceof DOMException && error.name === "NotAllowedError"
+            ? "Camera access was denied. Allow it for this site and try again."
+            : error instanceof Error
+              ? `Could not access your camera: ${error.message}`
+              : "Could not access your camera.",
+        );
+      }
+
+      const track = captured.getVideoTracks()[0];
+      if (!track) {
+        captured.getTracks().forEach((t) => t.stop());
+        throw new PeerError("No camera track was returned.");
+      }
+
+      cameraStream = captured;
+      cameraSender = connection.addTrack(track, captured);
+
+      // Covers the camera device disappearing mid-call — unplugged, or
+      // permission revoked from the OS/browser settings while live.
+      track.onended = () => {
+        void stopCamera();
+      };
+
+      await renegotiate();
+      return captured;
+    },
+
+    stopCamera,
+
+    isCameraOn() {
+      return cameraStream !== null;
+    },
+
     close() {
       connection.ontrack = null;
       connection.onicecandidate = null;
       connection.onconnectionstatechange = null;
       localStream.getTracks().forEach((track) => track.stop());
       screenStream?.getTracks().forEach((track) => track.stop());
+      cameraStream?.getTracks().forEach((track) => track.stop());
       remoteStream.getTracks().forEach((track) => remoteStream.removeTrack(track));
       connection.close();
     },
