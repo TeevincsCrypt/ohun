@@ -8,10 +8,21 @@ import { MissingApiKeyError } from "@/lib/assemblyai/token";
  *
  * Deliberately not the streaming path a call uses. A voice note is already
  * complete when it arrives, so there is nothing to stream, and the batch
- * API is both more accurate on a whole utterance and far broader in the
- * languages it covers — Yoruba among them, which streaming has no model
- * for. A Yoruba speaker cannot use OHUN on a live call; they can send a
- * voice note.
+ * API's underlying model can transcribe far more languages than streaming
+ * has a model for at all — Yoruba among them. A Yoruba speaker cannot use
+ * OHUN on a live call; they can send a voice note.
+ *
+ * That broader coverage only applies when the language is named directly
+ * via `language_code`, though — AssemblyAI's automatic `language_detection`
+ * is its own, narrower model, and Yoruba (among others) is outside what
+ * *it* can recognise. Fed real Yoruba speech, detection doesn't fail with
+ * anything language-specific; it reports the same error it uses for a
+ * genuinely silent file ("language_detection cannot be performed on files
+ * with no spoken audio") — confirmed directly against a real recording.
+ * transcribeWithLanguage() below is what actually reconciles this: try
+ * detection first (it is still worth it — see the note there), and when
+ * detection itself is what failed, retry once with the sender's own
+ * profile language stated explicitly instead of guessed at.
  */
 
 export class VoiceNoteTranscriptionError extends Error {
@@ -41,6 +52,37 @@ export interface VoiceNoteTranscript {
   language: LanguageCode;
 }
 
+type TranscribeResult = Awaited<ReturnType<AssemblyAI["transcripts"]["transcribe"]>>;
+
+async function attemptTranscribe(
+  client: AssemblyAI,
+  audioUrl: string,
+  languageOptions:
+    | { language_detection: true }
+    | { language_detection: false; language_code: LanguageCode },
+): Promise<TranscribeResult> {
+  try {
+    return await client.transcripts.transcribe({ audio: audioUrl, ...languageOptions });
+  } catch (error) {
+    throw new VoiceNoteTranscriptionError(
+      error instanceof Error ? error.message : "The voice note could not be transcribed.",
+    );
+  }
+}
+
+/**
+ * True specifically for automatic detection's own failure mode — not for a
+ * recording that genuinely has nothing said in it, which retrying with an
+ * explicit language_code cannot fix either, and which is handled below by
+ * the plain empty-text check instead.
+ */
+function isLanguageDetectionFailure(transcript: TranscribeResult): boolean {
+  return (
+    transcript.status === "error" &&
+    (transcript.error ?? "").toLowerCase().includes("language_detection")
+  );
+}
+
 export async function transcribeVoiceNote(
   audioUrl: string,
   fallbackLanguage: LanguageCode,
@@ -50,19 +92,21 @@ export async function transcribeVoiceNote(
 
   const client = new AssemblyAI({ apiKey });
 
-  let transcript;
-  try {
-    transcript = await client.transcripts.transcribe({
-      audio: audioUrl,
-      // Someone recording a voice note in a translation app is quite likely
-      // not speaking the language their profile says — that is the whole
-      // reason they are here. Detect rather than assert.
-      language_detection: true,
+  // Someone recording a voice note in a translation app is quite likely not
+  // speaking the language their profile says — that is the whole reason
+  // they are here. Detect rather than assert, first.
+  let transcript = await attemptTranscribe(client, audioUrl, { language_detection: true });
+
+  if (isLanguageDetectionFailure(transcript)) {
+    // Detection is its own, narrower model and doesn't recognise every
+    // language this app now does — Yoruba included (see the module doc
+    // comment). Once detection itself is what failed, naming the sender's
+    // profile language directly is a far better bet than refusing the
+    // recording outright.
+    transcript = await attemptTranscribe(client, audioUrl, {
+      language_detection: false,
+      language_code: fallbackLanguage,
     });
-  } catch (error) {
-    throw new VoiceNoteTranscriptionError(
-      error instanceof Error ? error.message : "The voice note could not be transcribed.",
-    );
   }
 
   if (transcript.status === "error") {
