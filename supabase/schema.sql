@@ -458,15 +458,21 @@ $$;
 -- attached, so they have to be dropped and rebuilt for the wider set.
 -- Yoruba stays out: AssemblyAI's streaming models cannot transcribe it, so
 -- offering it on calls would mean speech that never becomes text.
+--
+-- profiles.preferred_language is NOT rebuilt here (originally it was) —
+-- Phase 16 is the current authority on that constraint, and this whole
+-- file is meant to be safely re-run top to bottom on a database that
+-- already has real rows in it. Once a real Yoruba profile exists, this
+-- block unconditionally rebuilding the constraint back down to six
+-- languages, ahead of Phase 16 widening it again, fails outright — the
+-- ADD CONSTRAINT here is violated by that very row — and aborts the
+-- whole script before Phase 16 (or anything after it, Phase 17 included)
+-- ever runs. Reported directly from a production re-run.
 -- ---------------------------------------------------------------------------
 do $$
 declare
   allowed text := $c$ in ('en', 'fr', 'es', 'de', 'pt', 'it')$c$;
 begin
-  alter table public.profiles drop constraint if exists profiles_preferred_language_check;
-  execute 'alter table public.profiles add constraint profiles_preferred_language_check
-           check (preferred_language' || allowed || ')';
-
   alter table public.calls drop constraint if exists calls_caller_language_check;
   execute 'alter table public.calls add constraint calls_caller_language_check
            check (caller_language' || allowed || ')';
