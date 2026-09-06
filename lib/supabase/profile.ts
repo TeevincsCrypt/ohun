@@ -1,4 +1,4 @@
-import type { CallLanguageCode, Profile } from "@/types";
+import type { LanguageCode, Profile } from "@/types";
 
 /** The columns every profile read needs. Keeps the four call sites in step. */
 export const PROFILE_COLUMNS =
@@ -22,7 +22,7 @@ export function toProfile(row: ProfileRow): Profile {
     id: row.id,
     username: row.username,
     displayName: row.display_name,
-    preferredLanguage: row.preferred_language as CallLanguageCode,
+    preferredLanguage: row.preferred_language as LanguageCode,
     lastSeenAt: row.last_seen_at,
     avatarUrl: row.avatar_url,
     phone: row.phone,

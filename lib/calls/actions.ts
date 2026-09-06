@@ -35,8 +35,15 @@ export async function startCall(receiverId: string): Promise<StartCallResult> {
   const receiver = parties.find((p) => p.id === receiverId);
 
   if (!caller || !receiver) return { error: "Could not find that person." };
-  if (!isCallLanguage(caller.preferred_language) || !isCallLanguage(receiver.preferred_language)) {
-    return { error: "One of you has an unsupported language set." };
+  // Named specifically rather than "unsupported language set": Yoruba is
+  // the only real case this can fire for now — chat and voice notes both
+  // support it (see the CallLanguageCode doc comment in types/account.ts),
+  // only live speech-to-text does not.
+  if (!isCallLanguage(caller.preferred_language)) {
+    return { error: "Calls don't support Yoruba yet — change your language in your profile, or message instead." };
+  }
+  if (!isCallLanguage(receiver.preferred_language)) {
+    return { error: "That person's language isn't supported on calls yet — message them instead." };
   }
 
   // Clear any of this caller's stale ringing calls so a refresh mid-ring

@@ -45,7 +45,9 @@ export async function createRoom(): Promise<RoomResult> {
     .maybeSingle();
 
   const language = profile?.preferred_language;
-  if (!isCallLanguage(language)) return { error: "Your language isn't supported on calls." };
+  if (!isCallLanguage(language)) {
+    return { error: "Calls don't support Yoruba yet — change your language in your profile." };
+  }
 
   const { data: room, error: roomError } = await supabase
     .from("rooms")

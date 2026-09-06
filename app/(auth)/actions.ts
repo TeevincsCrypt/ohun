@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient, SupabaseConfigError } from "@/lib/supabase/server";
 import { siteOrigin } from "@/lib/site-origin";
-import { isCallLanguage, validateUsername } from "@/types";
+import { isSupportedLanguage, validateUsername } from "@/types";
 
 export interface AuthFormState {
   error: string | null;
@@ -45,7 +45,7 @@ export async function signUp(
   const usernameError = validateUsername(username);
   if (usernameError) return { error: usernameError };
 
-  if (!isCallLanguage(preferredLanguage)) {
+  if (!isSupportedLanguage(preferredLanguage)) {
     return { error: "Choose a supported language." };
   }
 

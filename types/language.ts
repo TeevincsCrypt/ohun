@@ -24,3 +24,12 @@ export const SUPPORTED_LANGUAGES: Language[] = [
 export function getLanguage(code: string | null | undefined): Language | undefined {
   return SUPPORTED_LANGUAGES.find((language) => language.code === code);
 }
+
+/**
+ * Any language OHUN has a translator prompt for — chat and voice notes,
+ * where there is no live speech-to-text model to worry about. Narrower for
+ * calls: see CallLanguageCode in ./account.
+ */
+export function isSupportedLanguage(value: unknown): value is LanguageCode {
+  return typeof value === "string" && SUPPORTED_LANGUAGES.some((language) => language.code === value);
+}

@@ -49,15 +49,21 @@ the tab isn't open.
 
 ## Supported languages
 
-**English, French, Spanish, German, Portuguese, Italian** — on accounts,
-calls, and chat. These are the languages AssemblyAI's Universal-Streaming
-models transcribe.
+**English, French, Spanish, German, Portuguese, Italian, and Yoruba** — as
+an account's own language, for chat and voice notes. Claude translates text
+in any of these seven, and voice notes are transcribed by AssemblyAI's
+*batch* API (`lib/chat/transcribe.ts`), which covers a much broader set of
+languages than realtime streaming does — Yoruba included.
 
-Yoruba is defined in the language list and available in the single-device
-`/conversation` demo, but not offered on real accounts or calls: offering it
-there would silently fail to transcribe, since no current AssemblyAI
-streaming model covers it. Supporting it for real means a Whisper-streaming
-model or another STT provider, with a different latency profile.
+**Voice and video calls are narrower: the first six only, not Yoruba.**
+Calls run on AssemblyAI's *realtime* Universal-Streaming models, which have
+no Yoruba model to transcribe it with — offering it on a call would mean
+speech that silently never becomes text. A Yoruba-preferring account can
+message and send voice notes normally; attempting to place or receive a
+call returns a clear, specific error instead of a broken one
+(`lib/calls/actions.ts`, `lib/rooms/actions.ts`). Supporting Yoruba on calls
+for real would mean a Whisper-streaming model or another realtime STT
+provider, with a different latency profile.
 
 ## How it works
 
@@ -207,7 +213,8 @@ just don't reach a closed tab.
 
 ## Known limitations
 
-- **Yoruba is chat/demo-only** — see "Supported languages" above.
+- **Yoruba works for chat and voice notes, not calls** — see "Supported
+  languages" above.
 - **Screen share needs `getDisplayMedia`**, which no iOS browser (Safari
   included) has ever shipped. Camera video has no such gap.
 - **Group calls are capped at 7 participants.** Mesh cost grows with the

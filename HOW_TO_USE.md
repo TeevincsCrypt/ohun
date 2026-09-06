@@ -13,15 +13,22 @@ Go to `/signup` and fill in:
 - **Username** — how people find and @-mention you. Lowercase letters,
   numbers, and underscores, 3–20 characters.
 - **Email and password.**
-- **Language you speak** — one of English, French, Spanish, German,
-  Portuguese, or Italian. This single setting drives every translation you
-  receive: your chats, your calls, everything is translated *into* this
-  language for you, and *out of* it for everyone you talk to. There's no
+- **Language you speak** — English, French, Spanish, German, Portuguese,
+  Italian, or Yoruba. This single setting drives every translation you
+  receive: your chats and voice notes are translated *into* this language
+  for you, and *out of* it for everyone you talk to. There's no
   "conversation language" to pick each time — each person's own profile
   setting is enough.
 
 Confirm your email if prompted, then log in. You can change your language
 later from `/profile`.
+
+Chat and voice notes work in all seven languages. **Voice and video calls
+currently support the first six only** — Yoruba has no live speech
+transcription model behind it yet, so a call to or from a Yoruba-set
+account is turned away with a clear message rather than silently failing to
+translate. Messaging and voice notes work exactly the same regardless of
+which language you pick.
 
 ## 2. Find someone and start talking
 
@@ -115,6 +122,10 @@ translated call with you directly:
 Put it in a bio or signature. You can **regenerate** the link at any time
 from `/profile`, which invalidates the old one immediately.
 
+If your own account language is set to Yoruba, your room link still works
+as a page — visitors see who you are — but shows a message that calling
+isn't available in your language yet, instead of a call button.
+
 ## 7. Scheduling a call
 
 Tap **Schedule** on someone's People result to book a call for later
@@ -149,8 +160,9 @@ open.
 languages on *one* device, and it acts as a walkie-talkie between them —
 tap to talk, only one microphone active at a time, no accounts or calls
 involved. Useful for trying OHUN out with someone sitting across from you
-before either of you creates an account. It also supports Yoruba, unlike
-real accounts and calls (see the note in the README).
+before either of you creates an account. It runs on the same realtime
+speech-to-text as a call, so — like calls, and unlike chat — Yoruba is
+listed as an option but won't actually transcribe if picked.
 
 ## Tips and troubleshooting
 

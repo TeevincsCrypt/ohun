@@ -7,8 +7,7 @@ import { translateToMany } from "@/lib/translation/translate-many";
 import { pushToUser } from "@/lib/push/send";
 import { transcribeVoiceNote } from "./transcribe";
 import {
-  isCallLanguage,
-  type CallLanguageCode,
+  isSupportedLanguage,
   type ChatMessage,
   type ChatMessageKind,
   type LanguageCode,
@@ -32,7 +31,7 @@ export interface ChatResult {
   threadId?: string;
   message?: ChatMessage;
   /** Set by repairTranslation — the language filled in, and what it says. */
-  translation?: { language: CallLanguageCode; text: string };
+  translation?: { language: LanguageCode; text: string };
   error?: string;
 }
 
@@ -150,7 +149,7 @@ async function otherLanguages(
   supabase: Awaited<ReturnType<typeof createClient>>,
   threadId: string,
   from: LanguageCode,
-): Promise<CallLanguageCode[]> {
+): Promise<LanguageCode[]> {
   const { data: members } = await supabase
     .from("chat_members")
     .select("user_id")
@@ -164,9 +163,13 @@ async function otherLanguages(
     .select("id, preferred_language")
     .in("id", ids);
 
+  // Chat has no CallLanguageCode ceiling — Claude translates Yoruba text
+  // and voice notes just as well as any other language here (see the
+  // CallLanguageCode doc comment in types/account.ts). isSupportedLanguage
+  // only guards against a row with no usable language at all.
   const languages = (profiles ?? [])
     .map((row) => row.preferred_language)
-    .filter((language): language is CallLanguageCode => isCallLanguage(language));
+    .filter((language): language is LanguageCode => isSupportedLanguage(language));
 
   return [...new Set(languages)].filter((language) => language !== from);
 }
@@ -353,7 +356,7 @@ export async function sendTextMessage(threadId: string, text: string): Promise<C
     .maybeSingle();
 
   const language = profile?.preferred_language;
-  if (!isCallLanguage(language)) return { error: "Set your language in your profile first." };
+  if (!isSupportedLanguage(language)) return { error: "Set your language in your profile first." };
 
   return persist(supabase, {
     threadId,
@@ -399,7 +402,7 @@ export async function sendVoiceNote(
     .maybeSingle();
 
   const fallback = profile?.preferred_language;
-  if (!isCallLanguage(fallback)) return { error: "Set your language in your profile first." };
+  if (!isSupportedLanguage(fallback)) return { error: "Set your language in your profile first." };
 
   // Signed rather than public: the bucket is private, and AssemblyAI has to
   // be able to fetch the audio to transcribe it.
@@ -484,7 +487,7 @@ export async function repairTranslation(messageId: string): Promise<ChatResult> 
     .maybeSingle();
 
   const language = profile?.preferred_language;
-  if (!isCallLanguage(language)) return { error: "Set your language in your profile first." };
+  if (!isSupportedLanguage(language)) return { error: "Set your language in your profile first." };
 
   // Already readable: it was written in this language to begin with.
   if (message.original_language === language) return {};

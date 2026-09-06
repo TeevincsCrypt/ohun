@@ -2,11 +2,18 @@ import type { LanguageCode, Language } from "./language";
 import { SUPPORTED_LANGUAGES } from "./language";
 
 /**
- * Languages a real account may choose. Narrower than SUPPORTED_LANGUAGES:
- * calls run through AssemblyAI streaming, whose models cover English,
- * Spanish, French, German, Portuguese and Italian — not Yoruba. Offering
- * Yoruba here would produce calls that silently fail to transcribe, so it
- * stays available only in the single-device Phase 3 demo at /conversation.
+ * Languages a real account may place a CALL in. Narrower than
+ * SUPPORTED_LANGUAGES: calls run through AssemblyAI's realtime streaming
+ * models, which cover English, Spanish, French, German, Portuguese and
+ * Italian — not Yoruba. Offering Yoruba on a call would produce speech
+ * that silently never becomes text.
+ *
+ * Chat has no such ceiling — voice notes go through AssemblyAI's batch
+ * transcription API instead (see lib/chat/transcribe.ts), which covers a
+ * much broader set including Yoruba, and a typed message needs no
+ * transcription at all. So a profile's own preferredLanguage is a plain
+ * LanguageCode (Yoruba included); this narrower type exists specifically
+ * for the two participants' languages on a call.
  */
 export type CallLanguageCode = Extract<LanguageCode, "en" | "fr" | "es" | "de" | "pt" | "it">;
 
@@ -25,14 +32,20 @@ export function getCallLanguage(code: string | null | undefined): Language | und
   return CALL_LANGUAGES.find((language) => language.code === code);
 }
 
-/** Flag shown next to a language. Purely decorative. */
-export const LANGUAGE_FLAG: Record<CallLanguageCode, string> = {
+/**
+ * Flag shown next to a language. Purely decorative. Covers every
+ * SUPPORTED_LANGUAGES code, not just CallLanguageCode — a profile badge or
+ * a chat message can show a Yoruba speaker's flag even though a call never
+ * will.
+ */
+export const LANGUAGE_FLAG: Record<LanguageCode, string> = {
   en: "🇬🇧",
   fr: "🇫🇷",
   es: "🇪🇸",
   de: "🇩🇪",
   pt: "🇵🇹",
   it: "🇮🇹",
+  yo: "🇳🇬",
 };
 
 export const USERNAME_PATTERN = /^[a-z0-9_]{3,20}$/;
@@ -51,7 +64,13 @@ export interface Profile {
   id: string;
   username: string;
   displayName: string;
-  preferredLanguage: CallLanguageCode;
+  /**
+   * A plain LanguageCode, Yoruba included — a profile is not limited to
+   * CallLanguageCode. Anywhere this feeds a call or room, it still has to
+   * pass isCallLanguage() first (see lib/calls/actions.ts, lib/rooms/actions.ts),
+   * exactly as it always did for any other unsupported value.
+   */
+  preferredLanguage: LanguageCode;
   lastSeenAt: string;
   avatarUrl: string | null;
   phone: string | null;
