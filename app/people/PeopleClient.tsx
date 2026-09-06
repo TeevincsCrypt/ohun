@@ -11,6 +11,7 @@ import { UserResult } from "@/components/ohun/UserResult";
 import { UpcomingCalls } from "@/components/ohun/UpcomingCalls";
 import { ScheduleCallDialog } from "@/components/ohun/ScheduleCallDialog";
 import { RecentActivity } from "@/components/ohun/RecentActivity";
+import { CallLanguageNoticeDialog } from "@/components/ohun/CallLanguageNoticeDialog";
 import { Pill } from "@/components/ui";
 import { PROFILE_COLUMNS, toProfile, type ProfileRow } from "@/lib/supabase/profile";
 import { PROFILE_SEARCH_LIMIT, type Profile, type ScheduledCall } from "@/types";
@@ -33,6 +34,8 @@ export function PeopleClient({ self }: { self: Profile }) {
   const [scheduling, setScheduling] = useState<Profile | null>(null);
   const [scheduled, setScheduled] = useState<ScheduledCall[]>([]);
   const [startingRoom, setStartingRoom] = useState(false);
+  // A popup rather than the inline error Pill — see CallLanguageNoticeDialog.
+  const [showLanguageNotice, setShowLanguageNotice] = useState(false);
   const requestRef = useRef(0);
 
   const refreshScheduled = useCallback(() => {
@@ -122,10 +125,17 @@ export function PeopleClient({ self }: { self: Profile }) {
       setCallingId(profile.id);
       setError(null);
 
-      const { callId, error: callError } = await startCall(profile.id);
+      const { callId, error: callError, reason } = await startCall(profile.id);
 
       if (callError || !callId) {
         setCallingId(null);
+        // A popup, not the inline Pill — this is a standing language limit,
+        // not a one-off mistake to retry, and it's the same explanation
+        // regardless of which side (caller or callee) tripped it.
+        if (reason === "unsupported_language") {
+          setShowLanguageNotice(true);
+          return null;
+        }
         const message = callError ?? "Could not start the call.";
         setError(message);
         return message;
@@ -156,10 +166,14 @@ export function PeopleClient({ self }: { self: Profile }) {
     async (withVideo = false) => {
       setStartingRoom(true);
       setError(null);
-      const { roomId, error: roomError } = await createRoom();
+      const { roomId, error: roomError, reason } = await createRoom();
       if (roomError || !roomId) {
-        setError(roomError ?? "Could not start the call.");
         setStartingRoom(false);
+        if (reason === "unsupported_language") {
+          setShowLanguageNotice(true);
+          return;
+        }
+        setError(roomError ?? "Could not start the call.");
         return;
       }
       router.push(withVideo ? `/room/${roomId}?video=1` : `/room/${roomId}`);
@@ -169,6 +183,10 @@ export function PeopleClient({ self }: { self: Profile }) {
 
   return (
     <>
+      {showLanguageNotice && (
+        <CallLanguageNoticeDialog onClose={() => setShowLanguageNotice(false)} />
+      )}
+
       {scheduling && (
         <ScheduleCallDialog
           invitee={scheduling}

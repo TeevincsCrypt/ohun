@@ -28,3 +28,4 @@ export * from "./AddParticipantDialog";
 export * from "./RoomInviteWatcher";
 export * from "./CallSummaryPanel";
 export * from "./PlayLineButton";
+export * from "./CallLanguageNoticeDialog";

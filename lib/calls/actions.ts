@@ -1,11 +1,12 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { isCallLanguage, type CallStatus } from "@/types";
+import { isCallLanguage, type CallRejectionReason, type CallStatus } from "@/types";
 
 export interface StartCallResult {
   callId?: string;
   error?: string;
+  reason?: CallRejectionReason;
 }
 
 /**
@@ -40,10 +41,16 @@ export async function startCall(receiverId: string): Promise<StartCallResult> {
   // support it (see the CallLanguageCode doc comment in types/account.ts),
   // only live speech-to-text does not.
   if (!isCallLanguage(caller.preferred_language)) {
-    return { error: "Calls don't support Yoruba yet — change your language in your profile, or message instead." };
+    return {
+      error: "Calls don't support Yoruba yet — change your language in your profile, or message instead.",
+      reason: "unsupported_language",
+    };
   }
   if (!isCallLanguage(receiver.preferred_language)) {
-    return { error: "That person's language isn't supported on calls yet — message them instead." };
+    return {
+      error: "That person's language isn't supported on calls yet — message them instead.",
+      reason: "unsupported_language",
+    };
   }
 
   // Clear any of this caller's stale ringing calls so a refresh mid-ring

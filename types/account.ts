@@ -28,6 +28,15 @@ export function isCallLanguage(value: unknown): value is CallLanguageCode {
   return typeof value === "string" && (CALL_LANGUAGE_CODES as string[]).includes(value);
 }
 
+/**
+ * Marks a call/room-invite failure as a language ceiling rather than a
+ * normal mistake, so the UI can show a dedicated popup instead of an
+ * inline error — see CallLanguageNoticeDialog. Only one cause exists today
+ * (Yoruba), but the reason is a code, not the message text, so the UI
+ * never has to string-match an error to recognise it.
+ */
+export type CallRejectionReason = "unsupported_language";
+
 export function getCallLanguage(code: string | null | undefined): Language | undefined {
   return CALL_LANGUAGES.find((language) => language.code === code);
 }
