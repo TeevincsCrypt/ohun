@@ -1178,3 +1178,25 @@ begin
   return new;
 end;
 $$;
+
+-- ---------------------------------------------------------------------------
+-- Phase 17: chat_members missed Phase 16.
+--
+-- chat_messages.original_language and chat_translations.language (Phase 12)
+-- were already written to allow Yoruba — whoever built the chat schema
+-- anticipated it needing no CallLanguageCode ceiling. chat_members.language
+-- was not, and it is a NOT NULL column populated on every openThread() call
+-- (see lib/chat/actions.ts), so opening a thread with — or as — a
+-- Yoruba-set account failed outright with a check-constraint violation,
+-- even though the rest of chat already worked. This is that same oversight,
+-- fixed the same way as Phase 16 fixed it for profiles.
+--
+-- Left unfixed deliberately: room_participants.language and
+-- utterances.spoken_language. Both belong exclusively to calls and rooms
+-- (a call/room could never have been created with a Yoruba participant to
+-- begin with — see Phase 9/10), so widening them would only mask a bug
+-- elsewhere if one ever put a Yoruba value there.
+-- ---------------------------------------------------------------------------
+alter table public.chat_members drop constraint if exists chat_members_language_check;
+alter table public.chat_members add constraint chat_members_language_check
+  check (language in ('en', 'fr', 'es', 'de', 'pt', 'it', 'yo'));
