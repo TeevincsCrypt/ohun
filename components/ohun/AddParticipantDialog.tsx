@@ -5,13 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { inviteToRoom } from "@/lib/rooms/actions";
 import { Avatar } from "./UserResult";
 import { Button, Card, Pill } from "@/components/ui";
-import {
-  LANGUAGE_FLAG,
-  MAX_ROOM_PARTICIPANTS,
-  PROFILE_SEARCH_LIMIT,
-  type CallLanguageCode,
-  type Profile,
-} from "@/types";
+import { LANGUAGE_FLAG, MAX_ROOM_PARTICIPANTS, PROFILE_SEARCH_LIMIT, type Profile } from "@/types";
 import { PROFILE_COLUMNS, toProfile, type ProfileRow } from "@/lib/supabase/profile";
 
 /** Search for someone and pull them into a call that is already running. */
@@ -130,8 +124,7 @@ export function AddParticipantDialog({
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{profile.displayName}</p>
                     <p className="truncate text-xs text-[var(--muted)]">
-                      @{profile.username} ·{" "}
-                      {LANGUAGE_FLAG[profile.preferredLanguage as CallLanguageCode]}
+                      @{profile.username} · {LANGUAGE_FLAG[profile.preferredLanguage]}
                     </p>
                   </div>
                   {already ? (

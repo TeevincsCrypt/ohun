@@ -6,7 +6,7 @@ import { updateAvatar, updateProfile, removeAvatar, type ProfileFormState } from
 import { Avatar } from "@/components/ohun/UserResult";
 import { RoomLinkCard } from "@/components/ohun/RoomLinkCard";
 import { Button, Card, Pill } from "@/components/ui";
-import { AVATAR_MAX_BYTES, CALL_LANGUAGES, LANGUAGE_FLAG, type Profile } from "@/types";
+import { AVATAR_MAX_BYTES, SUPPORTED_LANGUAGES, LANGUAGE_FLAG, type Profile } from "@/types";
 
 const initialState: ProfileFormState = { error: null };
 
@@ -160,15 +160,17 @@ function DetailsSection({ profile }: { profile: Profile }) {
             defaultValue={profile.preferredLanguage}
             className="h-12 w-full appearance-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 text-base text-[var(--foreground)] outline-none transition-colors focus-visible:border-[var(--accent)]"
           >
-            {CALL_LANGUAGES.map((language) => (
+            {SUPPORTED_LANGUAGES.map((language) => (
               <option key={language.code} value={language.code}>
-                {LANGUAGE_FLAG[language.code as keyof typeof LANGUAGE_FLAG]} {language.label} ·{" "}
+                {LANGUAGE_FLAG[language.code]} {language.label} ·{" "}
                 {language.nativeLabel}
               </option>
             ))}
           </select>
           <p className="text-xs text-[var(--muted)]">
-            Calls you join are translated into this language.
+            Chats and voice notes you receive are translated into this
+            language. Yoruba isn&apos;t available on voice or video calls yet
+            — the other six languages are.
           </p>
         </div>
 

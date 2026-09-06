@@ -3,7 +3,14 @@
 import { useEffect, useState } from "react";
 import { summariseCall, type CallRef } from "@/lib/summary/actions";
 import { Button } from "@/components/ui";
-import { LANGUAGE_FLAG, getCallLanguage, type CallLanguageCode, type CallSummary } from "@/types";
+import {
+  LANGUAGE_FLAG,
+  getCallLanguage,
+  getLanguage,
+  type CallLanguageCode,
+  type CallSummary,
+  type LanguageCode,
+} from "@/types";
 
 /**
  * Shown once a call has ended: a recap of what was discussed, in the
@@ -21,7 +28,14 @@ export function CallSummaryPanel({
   doneLabel = "Back to People",
 }: {
   callRef: CallRef;
-  myLanguage: CallLanguageCode;
+  /**
+   * A plain LanguageCode: a summary was only ever written in the call's own
+   * languages, but the reader viewing it later may since have switched
+   * their profile to Yoruba, which a call could never have used — the
+   * fallback below already handles "my language has no version" for any
+   * reason, this just widens what "my language" is allowed to be.
+   */
+  myLanguage: LanguageCode;
   onDone: () => void;
   doneLabel?: string;
 }) {
@@ -48,13 +62,19 @@ export function CallSummaryPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callRef.callId, callRef.roomId]);
 
+  // byLanguage is only ever keyed by CallLanguageCode, but myLanguage is
+  // now a plain LanguageCode (a reader may have switched to Yoruba since
+  // the call) — a call summary simply has no entry for a key outside its
+  // narrower type, which this widened-record view makes explicit instead
+  // of asserting myLanguage down to a type it may not actually satisfy.
+  const byLanguage = summary?.byLanguage as Partial<Record<LanguageCode, string>> | undefined;
+
   // Falls back to any language present when nothing was written in the
   // reader's own — better a summary they can partly follow than none.
-  const text =
-    summary?.byLanguage[myLanguage] ?? Object.values(summary?.byLanguage ?? {})[0] ?? null;
-  const shownIn = summary?.byLanguage[myLanguage]
+  const text = byLanguage?.[myLanguage] ?? Object.values(byLanguage ?? {})[0] ?? null;
+  const shownIn = byLanguage?.[myLanguage]
     ? myLanguage
-    : (Object.keys(summary?.byLanguage ?? {})[0] as CallLanguageCode | undefined);
+    : (Object.keys(byLanguage ?? {})[0] as CallLanguageCode | undefined);
 
   return (
     <div className="card-lit animate-rise mx-auto w-full max-w-lg rounded-3xl p-6 sm:p-8">
@@ -88,7 +108,7 @@ export function CallSummaryPanel({
         <>
           {shownIn && shownIn !== myLanguage && (
             <p className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-400">
-              Shown in {getCallLanguage(shownIn)?.label} — no {getCallLanguage(myLanguage)?.label}{" "}
+              Shown in {getCallLanguage(shownIn)?.label} — no {getLanguage(myLanguage)?.label}{" "}
               version was written.
             </p>
           )}

@@ -11,6 +11,8 @@ import {
   CALL_LANGUAGES,
   LANGUAGE_FLAG,
   getCallLanguage,
+  getLanguage,
+  isCallLanguage,
   isOnline,
   validateDisplayName,
   type CallLanguageCode,
@@ -35,7 +37,10 @@ export function RoomJoinClient({
   const [pending, startAction] = useTransition();
 
   const online = isOnline({ lastSeenAt: owner.lastSeenAt });
-  const ownerLanguage = getCallLanguage(owner.preferredLanguage);
+  // getLanguage, not getCallLanguage: this is shown regardless of whether a
+  // call can actually happen, so it must resolve Yoruba too — see the
+  // !owner.canCall branch below, which is what actually gates the call.
+  const ownerLanguage = getLanguage(owner.preferredLanguage);
 
   /** Places the call and hands off to the room. */
   const dial = async () => {
@@ -111,7 +116,27 @@ export function RoomJoinClient({
         language — OHUN translates both ways, live.
       </p>
 
-      {self ? (
+      {!owner.canCall ? (
+        // A room link exists purely to place a call, and OHUN calls have no
+        // live speech-to-text model for Yoruba — see RoomOwner.canCall.
+        // Still shown rather than 404ing: the link and the person behind it
+        // are real, calling from it just isn't, yet.
+        <p className="text-sm text-[var(--muted)]">
+          {owner.displayName.split(" ")[0]} hasn&apos;t set up voice or video calling in a
+          supported language yet. Message them instead once you have an account.
+        </p>
+      ) : self && !isCallLanguage(self.preferredLanguage) ? (
+        // Same ceiling, the other way round: a signed-in visitor whose own
+        // profile is set to Yoruba cannot place this call either, even
+        // though the owner can receive one.
+        <p className="text-sm text-[var(--muted)]">
+          Calls don&apos;t support Yoruba yet — change your language in{" "}
+          <a href="/profile" className="text-[var(--foreground)] underline underline-offset-4">
+            your profile
+          </a>{" "}
+          to call {owner.displayName.split(" ")[0]}, or message them instead.
+        </p>
+      ) : self ? (
         <>
           <p className="text-sm text-[var(--muted)]">
             Calling as <span className="text-[var(--foreground)]">{self.displayName}</span> ·{" "}

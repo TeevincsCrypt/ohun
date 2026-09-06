@@ -1,7 +1,7 @@
 "use client";
 
 import { Card, Pill, Button } from "@/components/ui";
-import { LANGUAGE_FLAG, getCallLanguage, isOnline, type Profile } from "@/types";
+import { LANGUAGE_FLAG, getLanguage, isOnline, type Profile } from "@/types";
 
 export function Avatar({
   name,
@@ -42,7 +42,10 @@ export function Avatar({
 }
 
 export function LanguageTag({ code }: { code: Profile["preferredLanguage"] }) {
-  const language = getCallLanguage(code);
+  // getLanguage, not getCallLanguage: this labels a profile's own language
+  // wherever it's shown (People results, the header), not a call in
+  // progress — a Yoruba speaker's tag should read "Yoruba", not the code.
+  const language = getLanguage(code);
   return (
     <span className="text-sm text-[var(--muted)]">
       {LANGUAGE_FLAG[code]} {language?.label ?? code}

@@ -5,7 +5,7 @@ import { signOut } from "@/app/(auth)/actions";
 import { PeopleClient } from "./PeopleClient";
 import { Logo } from "@/components/ohun";
 import { Avatar, LanguageTag } from "@/components/ohun/UserResult";
-import { getCallLanguage } from "@/types";
+import { getLanguage } from "@/types";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 
 /** Per-user and session-dependent — must never be prerendered at build time. */
@@ -68,7 +68,7 @@ export default async function PeoplePage() {
           <span className="text-[var(--accent)]">in any language</span>
         </h1>
         <p className="mt-2 text-[var(--muted)]">
-          Speak {getCallLanguage(profile.preferredLanguage)?.label ?? "your language"} — they hear
+          Speak {getLanguage(profile.preferredLanguage)?.label ?? "your language"} — they hear
           their own, translated live.
         </p>
 

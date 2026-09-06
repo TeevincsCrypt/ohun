@@ -3,14 +3,21 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { tryCreateAdminClient } from "@/lib/supabase/admin";
-import type { CallLanguageCode } from "@/types";
+import { isCallLanguage, type LanguageCode } from "@/types";
 
 /** What the public room page needs to render. Deliberately minimal — this is unauthenticated. */
 export interface RoomOwner {
   id: string;
   username: string;
   displayName: string;
-  preferredLanguage: CallLanguageCode;
+  preferredLanguage: LanguageCode;
+  /**
+   * False for a Yoruba-preferring owner: a room link exists purely to
+   * place a call, and a call can never translate for them (no realtime
+   * speech-to-text model covers it — see CallLanguageCode). The page
+   * still resolves and shows who they are; it just cannot offer a call.
+   */
+  canCall: boolean;
   avatarUrl: string | null;
   /** So the visitor knows whether anyone is likely to pick up. */
   lastSeenAt: string;
@@ -35,11 +42,14 @@ export async function getRoomOwner(slug: string): Promise<RoomOwner | null> {
   // A guest's own room link is meaningless — they are a throwaway identity.
   if (!data || data.is_guest) return null;
 
+  const preferredLanguage = data.preferred_language as LanguageCode;
+
   return {
     id: data.id as string,
     username: data.username as string,
     displayName: data.display_name as string,
-    preferredLanguage: data.preferred_language as CallLanguageCode,
+    preferredLanguage,
+    canCall: isCallLanguage(preferredLanguage),
     avatarUrl: (data.avatar_url as string | null) ?? null,
     lastSeenAt: data.last_seen_at as string,
   };

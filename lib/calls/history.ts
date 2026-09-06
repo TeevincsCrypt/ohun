@@ -9,6 +9,7 @@ import {
   type CallOutcome,
   type CallStatus,
   type HistoryPerson,
+  type LanguageCode,
   type ParticipantState,
 } from "@/types";
 
@@ -59,7 +60,11 @@ async function loadPeople(
         id: row.id as string,
         username: row.username as string,
         displayName: row.display_name as string,
-        preferredLanguage: row.preferred_language as CallLanguageCode,
+        // A plain LanguageCode, not CallLanguageCode: this is the person's
+        // CURRENT profile, which may have changed since the call — a
+        // "Call back" attempt re-validates against startCall's own check
+        // regardless of what's shown here.
+        preferredLanguage: row.preferred_language as LanguageCode,
         avatarUrl: (row.avatar_url as string | null) ?? null,
       },
     ]),

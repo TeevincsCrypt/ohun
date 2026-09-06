@@ -2,7 +2,6 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { PROFILE_COLUMNS, toProfile, type ProfileRow } from "@/lib/supabase/profile";
 import type {
-  CallLanguageCode,
   ChatMessage,
   ChatMessageKind,
   ChatThreadSummary,
@@ -178,7 +177,7 @@ export async function listThreads(): Promise<ChatThreadSummary[]> {
     .eq("id", user.id)
     .maybeSingle();
 
-  const myLanguage = (me?.preferred_language ?? "en") as CallLanguageCode;
+  const myLanguage = (me?.preferred_language ?? "en") as LanguageCode;
 
   const [{ data: threads }, { data: allMembers }] = await Promise.all([
     supabase

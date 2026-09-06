@@ -1,5 +1,5 @@
 import type { LanguageCode } from "./language";
-import type { CallLanguageCode, Profile } from "./account";
+import type { Profile } from "./account";
 
 /**
  * A chat message is a call utterance that outlives the moment: written or
@@ -70,7 +70,7 @@ export const CHAT_VIEW_LABEL: Record<ChatView, string> = {
  */
 export function renderMessage(
   message: ChatMessage,
-  readerLanguage: CallLanguageCode,
+  readerLanguage: LanguageCode,
   view: ChatView,
 ): { primary: string; secondary: string | null } {
   const translated = message.translations[readerLanguage] ?? null;

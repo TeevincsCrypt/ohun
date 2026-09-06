@@ -5,7 +5,7 @@ import { useFormStatus } from "react-dom";
 import { signUp, type AuthFormState } from "../actions";
 import { AuthShell, AuthField, AuthLink } from "../AuthShell";
 import { Button, Pill } from "@/components/ui";
-import { CALL_LANGUAGES, LANGUAGE_FLAG, type CallLanguageCode } from "@/types";
+import { SUPPORTED_LANGUAGES, LANGUAGE_FLAG } from "@/types";
 
 const initialState: AuthFormState = { error: null };
 
@@ -58,12 +58,20 @@ export default function SignUpPage() {
             defaultValue="en"
             className="h-12 w-full appearance-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 text-base text-[var(--foreground)] outline-none transition-colors focus-visible:border-[var(--accent)]"
           >
-            {CALL_LANGUAGES.map((language) => (
+            {SUPPORTED_LANGUAGES.map((language) => (
               <option key={language.code} value={language.code}>
-                {LANGUAGE_FLAG[language.code as CallLanguageCode]} {language.label} · {language.nativeLabel}
+                {LANGUAGE_FLAG[language.code]} {language.label} · {language.nativeLabel}
               </option>
             ))}
           </select>
+          {/* Yoruba has no live speech-to-text model behind voice/video
+              calls yet, unlike the other six — worth knowing before
+              picking it, not after a call quietly refuses to start. */}
+          <p className="text-xs text-[var(--muted)]">
+            Chat and voice notes work in every language above. Voice and
+            video calls currently support English, French, Spanish, German,
+            Portuguese and Italian.
+          </p>
         </div>
 
         {state.error && (

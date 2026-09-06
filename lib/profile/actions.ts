@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   AVATAR_MAX_BYTES,
   AVATAR_MIME_TYPES,
-  isCallLanguage,
+  isSupportedLanguage,
   validateDisplayName,
   validatePhone,
 } from "@/types";
@@ -27,7 +27,7 @@ export async function updateProfile(
   const nameError = validateDisplayName(displayName);
   if (nameError) return { error: nameError };
 
-  if (!isCallLanguage(preferredLanguage)) {
+  if (!isSupportedLanguage(preferredLanguage)) {
     return { error: "Choose a supported language." };
   }
 

@@ -1115,3 +1115,66 @@ create policy "users manage their own push subscriptions"
   to authenticated
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
+
+-- ---------------------------------------------------------------------------
+-- Phase 16: Yoruba, for chat only.
+--
+-- Deliberately NOT added to calls.caller_language / calls.receiver_language
+-- (Phase 9) or room_participants.language (Phase 10) — those stay on the
+-- narrower six-language set forever, because AssemblyAI's realtime
+-- streaming models have no Yoruba model to transcribe it with. A profile's
+-- preferred_language has no such ceiling: chat translation runs through
+-- Claude on already-finished text, and a voice note is transcribed by
+-- AssemblyAI's batch API (lib/chat/transcribe.ts), which covers a much
+-- broader set of languages, Yoruba included.
+--
+-- handle_new_user() (Phase 1) is updated alongside the constraint rather
+-- than left as-is: it has its own separate, hard-coded coercion list, so
+-- widening the constraint alone would not have let a real signup's chosen
+-- language actually reach the profile row. Guest signups (is_anon) are
+-- deliberately kept on the narrower list — a guest identity exists only to
+-- place a call from a room link (see Phase 8), and a Yoruba-speaking guest
+-- could not do that regardless of what their profile said.
+-- ---------------------------------------------------------------------------
+alter table public.profiles drop constraint if exists profiles_preferred_language_check;
+alter table public.profiles add constraint profiles_preferred_language_check
+  check (preferred_language in ('en', 'fr', 'es', 'de', 'pt', 'it', 'yo'));
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  meta_username text := lower(new.raw_user_meta_data ->> 'username');
+  is_anon boolean := new.email is null;
+  submitted_language text := new.raw_user_meta_data ->> 'preferred_language';
+begin
+  insert into public.profiles (id, username, display_name, preferred_language, is_guest)
+  values (
+    new.id,
+    -- Guests never pick a username; generate one that cannot collide with
+    -- a real signup, which is constrained to 3-20 chars of [a-z0-9_].
+    coalesce(meta_username, 'guest_' || substr(replace(new.id::text, '-', ''), 1, 12)),
+    coalesce(
+      new.raw_user_meta_data ->> 'display_name',
+      case when is_anon then 'Guest' else split_part(new.email, '@', 1) end
+    ),
+    -- Metadata is client-supplied, so an unexpected value would otherwise
+    -- trip the check constraint and fail the whole signup. Coerce instead.
+    -- A guest is always about to place a call (see Phase 8), so it keeps
+    -- the narrower call-language list even though a real account's list is
+    -- wider by now.
+    case
+      when is_anon and submitted_language in ('en', 'fr', 'es', 'de', 'pt', 'it')
+        then submitted_language
+      when not is_anon and submitted_language in ('en', 'fr', 'es', 'de', 'pt', 'it', 'yo')
+        then submitted_language
+      else 'en'
+    end,
+    is_anon
+  );
+  return new;
+end;
+$$;
