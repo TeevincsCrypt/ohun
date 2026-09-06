@@ -6,6 +6,7 @@ import {
   MAX_ROOM_PARTICIPANTS,
   isCallLanguage,
   type CallLanguageCode,
+  type CallRejectionReason,
   type ParticipantState,
   type Room,
   type RoomParticipant,
@@ -15,6 +16,7 @@ import {
 export interface RoomResult {
   roomId?: string;
   error?: string;
+  reason?: CallRejectionReason;
 }
 
 interface ParticipantRow {
@@ -46,7 +48,10 @@ export async function createRoom(): Promise<RoomResult> {
 
   const language = profile?.preferred_language;
   if (!isCallLanguage(language)) {
-    return { error: "Calls don't support Yoruba yet — change your language in your profile." };
+    return {
+      error: "Calls don't support Yoruba yet — change your language in your profile.",
+      reason: "unsupported_language",
+    };
   }
 
   const { data: room, error: roomError } = await supabase
@@ -97,7 +102,7 @@ export async function createRoom(): Promise<RoomResult> {
 export async function inviteToRoom(
   roomId: string,
   inviteeId: string,
-): Promise<{ error?: string }> {
+): Promise<{ error?: string; reason?: CallRejectionReason }> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -112,7 +117,10 @@ export async function inviteToRoom(
 
   if (!invitee) return { error: "Could not find that person." };
   if (!isCallLanguage(invitee.preferred_language)) {
-    return { error: "That person's language isn't supported on calls." };
+    return {
+      error: "That person's language isn't supported on calls yet — message them instead.",
+      reason: "unsupported_language",
+    };
   }
 
   const { count } = await supabase

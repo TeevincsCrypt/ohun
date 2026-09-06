@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { inviteToRoom } from "@/lib/rooms/actions";
 import { Avatar } from "./UserResult";
+import { CallLanguageNoticeDialog } from "./CallLanguageNoticeDialog";
 import { Button, Card, Pill } from "@/components/ui";
 import { LANGUAGE_FLAG, MAX_ROOM_PARTICIPANTS, PROFILE_SEARCH_LIMIT, type Profile } from "@/types";
 import { PROFILE_COLUMNS, toProfile, type ProfileRow } from "@/lib/supabase/profile";
@@ -28,6 +29,7 @@ export function AddParticipantDialog({
   });
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [showLanguageNotice, setShowLanguageNotice] = useState(false);
   const [, startAction] = useTransition();
 
   const term = query.trim().replace(/^@/, "");
@@ -65,6 +67,12 @@ export function AddParticipantDialog({
       const result = await inviteToRoom(roomId, profile.id);
       setPendingId(null);
       if (result.error) {
+        // A popup, not the inline Pill — a standing language limit, not a
+        // one-off mistake to retry. See CallLanguageNoticeDialog.
+        if (result.reason === "unsupported_language") {
+          setShowLanguageNotice(true);
+          return;
+        }
         setError(result.error);
         return;
       }
@@ -79,6 +87,9 @@ export function AddParticipantDialog({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
+      {showLanguageNotice && (
+        <CallLanguageNoticeDialog onClose={() => setShowLanguageNotice(false)} />
+      )}
       <div className="w-full max-w-md" onClick={(event) => event.stopPropagation()}>
         <Card className="flex flex-col gap-4">
           <div>
