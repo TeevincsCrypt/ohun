@@ -3,8 +3,10 @@ import {
   LandingNav,
   LanguageBadgeRow,
   Footer,
-  FeatureStrip,
-  CallPreview,
+  TrustRow,
+  FeatureGrid,
+  StepsBand,
+  HeroIllustration,
 } from "@/components/ohun";
 
 function ArrowIcon() {
@@ -16,6 +18,20 @@ function ArrowIcon() {
   );
 }
 
+function PlayIcon() {
+  return (
+    <span
+      aria-hidden
+      className="flex h-7 w-7 items-center justify-center rounded-full"
+      style={{ background: "var(--accent)", color: "var(--accent-on)" }}
+    >
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M8 5v14l11-7z" />
+      </svg>
+    </span>
+  );
+}
+
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <span className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
@@ -24,77 +40,92 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-const steps = [
-  {
-    number: "01",
-    title: "You speak",
-    body: "Talk normally. OHUN transcribes your side as you go, in your own language.",
-  },
-  {
-    number: "02",
-    title: "OHUN translates",
-    body: "Each finished sentence is translated for meaning, not word by word, into their language.",
-  },
-  {
-    number: "03",
-    title: "They hear it",
-    body: "The translation is spoken aloud on their device and captioned for both of you.",
-  },
+const heroTags = [
+  "Live translation",
+  "Voice & video calls",
+  "Group calls",
+  "Chat",
+  "Voice notes",
+  "Room links",
 ];
 
 export default function Home() {
   return (
     <div className="relative flex flex-1 flex-col overflow-hidden">
-      {/* Ambient light behind the hero. */}
-      <div
-        aria-hidden
-        className="glow-field left-1/2 top-[-140px] h-[520px] w-[900px] -translate-x-1/2 opacity-45"
-        style={{ background: "radial-gradient(circle, var(--accent-glow) 0%, transparent 68%)" }}
-      />
-
       <LandingNav />
 
       <main className="relative z-10 flex flex-1 flex-col">
         {/* Hero */}
-        <section className="mx-auto flex w-full max-w-6xl flex-col items-center px-6 pb-16 pt-16 text-center sm:pt-24">
-          <span className="animate-rise inline-flex items-center gap-2 rounded-full border border-[var(--accent-border)] bg-[var(--accent-soft)] px-3.5 py-1.5 text-xs font-medium text-[var(--accent)]">
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
-            Real-time voice translation
-          </span>
+        <section className="mx-auto grid w-full max-w-6xl items-center gap-12 px-6 pb-20 pt-16 sm:pt-20 lg:grid-cols-[minmax(0,1fr)_440px] lg:gap-8">
+          <div>
+            <h1 className="animate-rise text-[2.5rem] font-bold leading-[1.05] tracking-tight sm:text-5xl lg:text-[3.4rem]">
+              Your bridge to{" "}
+              <span className="text-[var(--accent)]">every conversation</span>
+            </h1>
 
-          <h1 className="animate-rise mt-7 max-w-4xl text-[2.6rem] font-bold leading-[1.03] tracking-tight sm:text-6xl lg:text-7xl">
-            <span className="text-[var(--accent)]">Feels</span> like a call.
-            <br />
-            Works like a <span className="text-[var(--accent)]">translator</span>.
-          </h1>
+            <p className="animate-rise mt-6 max-w-lg text-lg leading-relaxed text-[var(--muted)]">
+              Speak, message, or call — in your own language. OHUN translates it live and speaks
+              it aloud in theirs, so the conversation stays a conversation.
+            </p>
 
-          <p className="animate-rise mt-6 max-w-xl text-lg leading-relaxed text-[var(--muted)]">
-            Two people, two languages, one conversation. Speak the way you always do — OHUN
-            translates it live and speaks it aloud in theirs.
-          </p>
+            <div className="animate-rise mt-8 flex flex-wrap items-center gap-4">
+              <Button href="/signup" size="lg" icon={<ArrowIcon />}>
+                Start free
+              </Button>
+              <Button href="/conversation" variant="ghost" size="lg" className="pl-1">
+                <PlayIcon />
+                Try the live demo
+              </Button>
+            </div>
 
-          <div className="animate-rise mt-9 flex flex-wrap items-center justify-center gap-3">
-            <Button href="/signup" size="lg" icon={<ArrowIcon />}>
-              Start free
-            </Button>
-            <Button href="/conversation" variant="outline" size="lg">
-              Try the live demo
-            </Button>
+            <div className="animate-rise mt-9 h-px w-full max-w-md bg-[var(--border)]" />
+
+            <div className="animate-rise mt-6 flex flex-wrap gap-2">
+              {heroTags.map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-full border border-[var(--border)] px-3.5 py-1.5 text-xs font-medium text-[var(--muted)]"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
           </div>
 
-          <p className="mt-4 text-xs text-[var(--muted)]">
-            No card required · The demo runs in your browser, no account needed
-          </p>
-
-          <div className="animate-rise mt-16 w-full max-w-4xl">
-            <CallPreview />
+          <div className="animate-rise">
+            <HeroIllustration />
           </div>
         </section>
 
-        <FeatureStrip />
+        <TrustRow />
+
+        {/* Features */}
+        <section id="features" className="border-t border-[var(--border)] py-20 sm:py-24">
+          <div className="mx-auto max-w-6xl px-6">
+            <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
+              <div>
+                <SectionLabel>Features</SectionLabel>
+                <h2 className="mt-4 max-w-xl text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
+                  Everything a real conversation needs,{" "}
+                  <span className="text-[var(--accent)]">nothing it doesn&apos;t</span>.
+                </h2>
+              </div>
+              <p className="max-w-xs text-sm text-[var(--muted)] sm:text-right">
+                One account. Chat, calls, and group calls — every language translated
+                automatically.
+              </p>
+            </div>
+
+            <div className="mt-12">
+              <FeatureGrid />
+            </div>
+          </div>
+        </section>
+
+        <StepsBand />
 
         {/* How it works */}
-        <section id="product" className="border-t border-[var(--border)] py-20 sm:py-24">
+        <section id="how-it-works" className="border-t border-[var(--border)] py-20 sm:py-24">
           <div className="mx-auto max-w-6xl px-6">
             <div className="flex flex-col items-center text-center">
               <SectionLabel>How it works</SectionLabel>
@@ -102,21 +133,42 @@ export default function Home() {
                 A conversation, not a translation app.
               </h2>
               <p className="mt-4 max-w-xl text-[var(--muted)]">
-                No apps passed back and forth. No typing. Two people talking, each in the language
-                they know best.
+                No apps passed back and forth. No typing required. Two people talking, each in
+                the language they know best.
               </p>
             </div>
 
-            <div className="mt-12 grid gap-4 sm:grid-cols-3">
-              {steps.map((step) => (
-                <div key={step.number} className="card-lit rounded-2xl p-6">
-                  <span className="font-mono text-sm font-semibold text-[var(--accent)]">
-                    {step.number}
-                  </span>
-                  <h3 className="mt-3 text-lg font-bold tracking-tight">{step.title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">{step.body}</p>
+            <div className="mt-12 w-full max-w-4xl mx-auto card-lit overflow-hidden rounded-3xl p-5 sm:p-7">
+              <div className="flex items-center justify-between">
+                <span className="inline-flex items-center gap-2 rounded-full border border-[var(--accent-border)] bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-medium text-[var(--accent)]">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
+                  Speaking
+                </span>
+                <span className="font-mono text-sm font-semibold tabular-nums text-[var(--muted)]">
+                  08:42
+                </span>
+                <span className="inline-flex items-center gap-2 rounded-full border border-[var(--peer-border)] bg-[var(--peer-soft)] px-3 py-1.5 text-xs font-medium text-[var(--peer)]">
+                  Listening
+                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--peer)]" />
+                </span>
+              </div>
+              <div className="mt-6 grid gap-3 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
+                <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-left">
+                  <p className="text-[11px] font-medium text-[var(--muted)]">🇬🇧 You said</p>
+                  <p className="mt-1.5 font-medium leading-snug text-[var(--accent)]">
+                    Where are you from?
+                  </p>
                 </div>
-              ))}
+                <span aria-hidden className="hidden text-[var(--muted)] sm:block">
+                  →
+                </span>
+                <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-left">
+                  <p className="text-[11px] font-medium text-[var(--muted)]">🇫🇷 Marie hears</p>
+                  <p className="mt-1.5 font-medium leading-snug text-[var(--peer)]">
+                    Tu viens d&apos;où ?
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -130,8 +182,8 @@ export default function Home() {
                 Starting small. Built to grow.
               </h2>
               <p className="mt-4 max-w-md text-[var(--muted)]">
-                Calls run on the languages our speech models handle reliably today. More follow as
-                they get there.
+                Chat and voice notes work in every language below. Calls run on the six our
+                speech models handle reliably today — more follow as they get there.
               </p>
             </div>
             <LanguageBadgeRow />
@@ -148,8 +200,8 @@ export default function Home() {
               </h2>
               <p className="mt-4 text-[var(--muted)]">
                 Every account gets a shareable room link. Put it in your bio or your signature —
-                whoever opens it can call you straight away, in their own language, without making
-                an account.
+                whoever opens it can call you straight away, in their own language, without
+                making an account.
               </p>
               <div className="mt-7">
                 <Button href="/signup" size="md" icon={<ArrowIcon />}>
@@ -182,6 +234,7 @@ export default function Home() {
             <h2 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
               Free while we build.
             </h2>
+            <p className="mt-3 text-sm text-[var(--muted)]">Try it free. No card required.</p>
             <p className="mt-4 max-w-md text-[var(--muted)]">
               OHUN is in preview and calls are unlimited. Paid plans arrive once the core
               experience is finished.

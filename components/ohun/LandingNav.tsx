@@ -4,10 +4,10 @@ import { Button } from "@/components/ui";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 
 const links = [
-  { href: "#product", label: "Product" },
+  { href: "#features", label: "Features" },
+  { href: "#how-it-works", label: "How it works" },
   { href: "#languages", label: "Languages" },
   { href: "#pricing", label: "Pricing" },
-  { href: "#insights", label: "Insights" },
 ];
 
 export function LandingNav() {

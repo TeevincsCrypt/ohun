@@ -29,3 +29,7 @@ export * from "./RoomInviteWatcher";
 export * from "./CallSummaryPanel";
 export * from "./PlayLineButton";
 export * from "./CallLanguageNoticeDialog";
+export * from "./HeroIllustration";
+export * from "./TrustRow";
+export * from "./FeatureGrid";
+export * from "./StepsBand";
