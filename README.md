@@ -2,6 +2,8 @@
 
 **Feels like a call. Works like a translator.**
 
+![OHUN landing page](docs/landing-page.png)
+
 OHUN is a real-time voice translation app. Two people who speak different
 languages have a natural conversation — by chat, by voice call, or by video
 call — each speaking or typing in their own language, with OHUN
