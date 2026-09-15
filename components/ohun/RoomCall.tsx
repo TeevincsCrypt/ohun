@@ -3,14 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useRoomSession } from "@/lib/rooms/useRoomSession";
-import { Avatar } from "./UserResult";
 import { AudioWaveform } from "./AudioWaveform";
 import { RoomCaptions } from "./RoomCaptions";
 import { AddParticipantDialog } from "./AddParticipantDialog";
 import { CallSummaryPanel } from "./CallSummaryPanel";
 import { Logo } from "./Logo";
 import {
-  LANGUAGE_FLAG,
   MAX_ROOM_PARTICIPANTS,
   activeParticipants,
   type Profile,
@@ -84,11 +82,26 @@ function ParticipantTile({
           muted={isSelf}
           className={`h-full w-full object-cover ${isSelf ? "scale-x-[-1]" : ""}`}
         />
+      ) : waiting ? (
+        <div className="flex h-full items-center justify-center">
+          <p className="font-mono text-[11px] uppercase tracking-wide text-[var(--muted)]">
+            joining…
+          </p>
+        </div>
+      ) : participant.profile.avatarUrl ? (
+        // A real profile photo is more useful than a placeholder — the
+        // "no camera" tile falls back to plain text only when there
+        // isn't one.
+        <img
+          src={participant.profile.avatarUrl}
+          alt=""
+          className="h-full w-full object-cover opacity-80"
+        />
       ) : (
         <div className="flex h-full items-center justify-center">
-          <div className={waiting ? "opacity-50" : ""}>
-            <Avatar name={participant.profile.displayName} src={participant.profile.avatarUrl} />
-          </div>
+          <p className="font-mono text-[11px] uppercase tracking-wide text-[var(--muted)]">
+            camera feed
+          </p>
         </div>
       )}
 
@@ -221,33 +234,46 @@ export function RoomCall({ room: initialRoom, self }: { room: Room; self: Profil
 
       <main className="relative z-10 mx-auto grid w-full min-h-0 max-w-[1180px] flex-1 gap-4 px-3 py-4 sm:gap-5 sm:px-5 sm:py-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[minmax(0,1fr)]">
         <section className="card-lit animate-rise flex min-h-0 min-w-0 flex-col rounded-3xl p-4 sm:p-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h1 className="text-lg font-bold tracking-tight">
-                Group call · {seated.length} of {MAX_ROOM_PARTICIPANTS}
-              </h1>
-              <p className="mt-1 text-xs text-[var(--muted)]">
-                {languagesInRoom.map((code) => LANGUAGE_FLAG[code]).join(" ")}{" "}
-                {languagesInRoom.length === 1
-                  ? "everyone shares a language"
-                  : `${languagesInRoom.length} languages, translated live`}
-              </p>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] pb-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-lg font-bold tracking-tight">Group call</h1>
+              <span className="font-mono text-sm tabular-nums text-[var(--muted)]">
+                {formatDuration(durationSeconds)}
+              </span>
+              <span
+                className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors ${
+                  isTranslating
+                    ? "border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent)]"
+                    : "border-[var(--border)] text-[var(--muted)]"
+                }`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full bg-current ${isTranslating ? "animate-pulse" : ""}`}
+                />
+                {isTranslating ? "Translating" : "Live"}
+              </span>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setShowAdd(true)}
-              disabled={full}
-              className="flex items-center gap-2 rounded-full border border-[var(--accent-border)] bg-[var(--accent-soft)] px-4 py-2 text-sm font-medium text-[var(--accent)] transition-opacity hover:opacity-85 disabled:opacity-40"
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-              {full ? "Call full" : "Add someone"}
-            </button>
+            <div className="flex items-center gap-3">
+              <span className="font-mono text-xs text-[var(--muted)]">
+                {seated.length} people · {languagesInRoom.length} languages
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowAdd(true)}
+                disabled={full}
+                aria-label={full ? "Call full" : "Add someone"}
+                title={full ? "Call full" : "Add someone"}
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent)] transition-opacity hover:opacity-85 disabled:opacity-40"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+              </button>
+            </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {seated.map((participant) => (
               <ParticipantTile
                 key={participant.userId}
@@ -360,9 +386,33 @@ export function RoomCall({ room: initialRoom, self }: { room: Room; self: Profil
                     {cameraOn && <path d="M2 3l20 18" />}
                   </svg>
                 )}
-                <span className="hidden sm:inline">{cameraOn ? "Stop video" : "Video"}</span>
+                <span className="hidden sm:inline">{cameraOn ? "Stop camera" : "Camera"}</span>
               </button>
             )}
+
+            <span
+              className={`flex h-11 items-center gap-2 rounded-full border px-3 text-sm font-medium sm:px-4 ${
+                isTranslating
+                  ? "border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent)]"
+                  : "border-[var(--border)] text-[var(--muted)]"
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full bg-current ${isTranslating ? "animate-pulse" : ""}`}
+              />
+              <span className="hidden sm:inline">Translation</span>
+              <span className="font-mono text-xs">{myLanguage.toUpperCase()}</span>
+            </span>
+
+            <span className="flex h-11 items-center gap-2 rounded-full border border-[var(--border)] px-3 text-sm font-medium text-[var(--foreground)] sm:px-4">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M16 20v-1a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v1" />
+                <circle cx="9.5" cy="8" r="3" />
+                <path d="M21 20v-1a3 3 0 0 0-2.5-3M16 5.5a3 3 0 0 1 0 5" />
+              </svg>
+              <span className="hidden sm:inline">People</span>
+              <span className="font-mono text-xs">{seated.length}</span>
+            </span>
 
             <button
               type="button"

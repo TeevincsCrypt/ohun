@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Avatar } from "./UserResult";
 import { PlayLineButton } from "./PlayLineButton";
+import { FilterTabs, type TranscriptFilter } from "./FilterTabs";
 import {
   CALL_LANGUAGE_CODES,
   LANGUAGE_FLAG,
@@ -100,6 +101,7 @@ export function RoomCaptions({
   onPlay: (text: string, language: CallLanguageCode) => Promise<void> | void;
 }) {
   const endRef = useRef<HTMLDivElement | null>(null);
+  const [filter, setFilter] = useState<TranscriptFilter>("both");
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -116,6 +118,10 @@ export function RoomCaptions({
         </svg>
         Live transcript
       </p>
+
+      <div className="mt-3">
+        <FilterTabs value={filter} onChange={setFilter} />
+      </div>
 
       <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
         {empty && (
@@ -163,24 +169,27 @@ export function RoomCaptions({
 
                 {/* What was actually said, labelled with the language it
                     was said in. */}
-                <LanguageLine
-                  code={spokenIn}
-                  text={caption.originalText}
-                  tone="original"
-                  note="spoken"
-                  onPlay={onPlay}
-                />
-
-                {translations.map((code) => (
+                {filter !== "translated" && (
                   <LanguageLine
-                    key={code}
-                    code={code}
-                    text={caption.byLanguage[code] ?? ""}
-                    tone={code === myLanguage ? "mine" : "other"}
-                    note={code === myLanguage ? "you hear" : undefined}
+                    code={spokenIn}
+                    text={caption.originalText}
+                    tone="original"
+                    note="spoken"
                     onPlay={onPlay}
                   />
-                ))}
+                )}
+
+                {filter !== "original" &&
+                  translations.map((code) => (
+                    <LanguageLine
+                      key={code}
+                      code={code}
+                      text={caption.byLanguage[code] ?? ""}
+                      tone={code === myLanguage ? "mine" : "other"}
+                      note={code === myLanguage ? "you hear" : undefined}
+                      onPlay={onPlay}
+                    />
+                  ))}
               </div>
             </div>
           );
