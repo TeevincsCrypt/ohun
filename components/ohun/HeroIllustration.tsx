@@ -58,10 +58,10 @@ export function HeroIllustration() {
       >
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold tracking-tight opacity-70">On a call</span>
-          <span className="flex items-center gap-1.5 text-xs font-medium" style={{ color: "var(--accent-strong, #bef264)" }}>
+          <span className="flex items-center gap-1.5 text-xs font-medium" style={{ color: "var(--accent-strong, #7fd4e0)" }}>
             <span
               className="h-1.5 w-1.5 rounded-full"
-              style={{ background: "var(--accent-strong, #bef264)" }}
+              style={{ background: "var(--accent-strong, #7fd4e0)" }}
             />
             Live
           </span>

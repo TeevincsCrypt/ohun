@@ -1,16 +1,26 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Figtree, IBM_Plex_Mono, Newsreader } from "next/font/google";
 import "./globals.css";
 import { IncomingCallWatcher } from "@/components/ohun/IncomingCallWatcher";
 import { MessageWatcher } from "@/components/ohun/MessageWatcher";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const figtree = Figtree({
+  variable: "--font-figtree",
   subsets: ["latin"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const plexMono = IBM_Plex_Mono({
+  variable: "--font-plex-mono",
+  weight: ["400", "500"],
+  subsets: ["latin"],
+});
+
+// Used only for the "what was actually said" line in a translated pair
+// (see .text-original in globals.css) — everywhere else in the app is
+// Figtree or IBM Plex Mono.
+const newsreader = Newsreader({
+  variable: "--font-newsreader",
+  style: ["italic", "normal"],
   subsets: ["latin"],
 });
 
@@ -44,7 +54,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${figtree.variable} ${plexMono.variable} ${newsreader.variable} h-full antialiased`}
     >
       <head>
         {/*

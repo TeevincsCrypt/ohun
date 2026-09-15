@@ -35,13 +35,13 @@ export function LogoMark({
     >
       <defs>
         <linearGradient id={outer} x1="4" y1="6" x2="28" y2="26" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="var(--accent-strong, #bef264)" />
-          <stop offset="55%" stopColor="var(--accent, #a3e635)" />
-          <stop offset="100%" stopColor="var(--accent, #a3e635)" stopOpacity="0.15" />
+          <stop offset="0%" stopColor="var(--accent-strong, #7fd4e0)" />
+          <stop offset="55%" stopColor="var(--accent, #5ec7d6)" />
+          <stop offset="100%" stopColor="var(--accent, #5ec7d6)" stopOpacity="0.15" />
         </linearGradient>
         <linearGradient id={inner} x1="26" y1="10" x2="8" y2="24" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="var(--accent, #a3e635)" />
-          <stop offset="100%" stopColor="var(--accent-strong, #bef264)" stopOpacity="0.35" />
+          <stop offset="0%" stopColor="var(--accent, #5ec7d6)" />
+          <stop offset="100%" stopColor="var(--accent-strong, #7fd4e0)" stopOpacity="0.35" />
         </linearGradient>
       </defs>
 

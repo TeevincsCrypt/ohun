@@ -25,7 +25,7 @@ export function CallLanguageNoticeDialog({ onClose }: { onClose: () => void }) {
         <Card className="flex flex-col gap-4 text-center">
           <div
             aria-hidden
-            className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-400"
+            className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-[var(--warn-border)] bg-[var(--warn-soft)] text-[var(--warn)]"
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
               <path d="M15 10l5-3v10l-5-3" />

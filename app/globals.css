@@ -1,99 +1,108 @@
 @import "tailwindcss";
 
 /*
- * OHUN design tokens.
+ * OHUN design tokens — "Cadence" system.
  *
- * One dark palette across marketing and product. Two accents carry meaning
- * rather than decoration: --accent is always "you" (your voice, your
- * language, primary actions) and --peer is always the other person. A
- * translated call therefore reads at a glance — your side is lime, theirs
- * is indigo, on every surface that shows both.
+ * Near-black call chrome so faces and shared screens carry the light, with
+ * one accent — teal — that only ever means "translation is active". Amber
+ * is reserved for low-confidence moments (an idiom, a shaky guess), never
+ * decoration. --peer stays as a second, cooler hue purely as a functional
+ * aid — telling two simultaneous speakers apart at a glance — since unlike
+ * a single-speaker mockup, OHUN's calls routinely show both sides live.
  */
 :root {
-  /* Dark by default. OHUN is a product surface first and a marketing page
-     second, and the two now share one palette instead of inverting. */
-  --background: #08090b;
-  --foreground: #f4f5f7;
-  --muted: rgba(244, 245, 247, 0.56);
-  --border: rgba(244, 245, 247, 0.1);
-  --surface: rgba(244, 245, 247, 0.035);
+  /* Dark by default, regardless of OS setting — OHUN only goes light when
+     someone explicitly asks for it (the toggle sets data-theme="light" and
+     the pre-paint script in app/layout.tsx applies it before first paint).
+     OHUN is a product surface first and a marketing page second, and the
+     two now share one palette instead of inverting. */
+  --background: #0e0f12;
+  --foreground: #f5f6f7;
+  --muted: rgba(245, 246, 247, 0.56);
+  --border: rgba(245, 246, 247, 0.1);
+  --surface: rgba(245, 246, 247, 0.035);
   /* One step brighter than --surface, for cards sitting on top of cards. */
-  --surface-raised: rgba(244, 245, 247, 0.06);
+  --surface-raised: rgba(245, 246, 247, 0.06);
 
-  /* Primary accent: the local speaker, live state, primary actions. */
-  --accent: #a3e635;
-  --accent-strong: #bef264;
-  --accent-soft: rgba(163, 230, 53, 0.12);
-  --accent-border: rgba(163, 230, 53, 0.28);
-  --accent-glow: rgba(163, 230, 53, 0.32);
+  /* Primary accent: translation is active. The one colour in the system
+     that carries a fixed meaning everywhere it appears. */
+  --accent: #5ec7d6;
+  --accent-strong: #7fd4e0;
+  --accent-soft: rgba(94, 199, 214, 0.12);
+  --accent-border: rgba(94, 199, 214, 0.28);
+  --accent-glow: rgba(94, 199, 214, 0.32);
+  --accent-on: #07272c;
 
-  /* Secondary accent: the remote speaker and their language, so the two
-     sides of a translated call are visually distinguishable at a glance. */
-  --peer: #818cf8;
-  --peer-soft: rgba(129, 140, 248, 0.12);
-  --peer-border: rgba(129, 140, 248, 0.28);
-  --peer-glow: rgba(129, 140, 248, 0.3);
+  /* Secondary hue: purely functional — the other person on a call, distinct
+     from "translation active" teal and from amber's warning meaning. */
+  --peer: #a89bf0;
+  --peer-soft: rgba(168, 155, 240, 0.12);
+  --peer-border: rgba(168, 155, 240, 0.28);
+  --peer-glow: rgba(168, 155, 240, 0.3);
 
-  --danger: #f87171;
-  --danger-soft: rgba(248, 113, 113, 0.12);
-  --danger-border: rgba(248, 113, 113, 0.3);
+  /* Low confidence — an idiom, a shaky guess, a translation worth checking.
+     Never used for anything else, so it stays legible as a signal. */
+  --warn: #e0b23c;
+  --warn-soft: rgba(224, 178, 60, 0.12);
+  --warn-border: rgba(224, 178, 60, 0.32);
 
-  /* Text that sits *on* a filled accent surface. The lime is bright enough
-     that white on it fails contrast, so the text goes dark instead. Light
-     mode darkens the fill and flips this to white — see below. */
-  --accent-on: #0a1400;
+  --danger: #c4453d;
+  --danger-soft: rgba(196, 69, 61, 0.14);
+  --danger-border: rgba(196, 69, 61, 0.32);
 
-  /* The "lit card" treatment: a faint vertical wash plus a hairline top
-     edge that catches light. Tokens because the direction reverses between
-     themes — light falls on a dark card as white and on a white card as a
-     soft shadow. */
-  --lit-wash-top: rgba(244, 245, 247, 0.055);
-  --lit-wash-bottom: rgba(244, 245, 247, 0.02);
-  --lit-edge: rgba(244, 245, 247, 0.22);
+  --lit-wash-top: rgba(245, 246, 247, 0.055);
+  --lit-wash-bottom: rgba(245, 246, 247, 0.02);
+  --lit-edge: rgba(245, 246, 247, 0.22);
   --grain-opacity: 0.05;
+
+  /* Diagonal "no signal" weave used behind an empty camera tile — two
+     near-black tones a shade apart, never a flat placeholder grey. */
+  --weave-a: #1b1e24;
+  --weave-b: #20242b;
 
   color-scheme: dark;
 }
 
 /*
- * Light mode.
- *
- * White, with the same lime carried through — but the lime that reads as
- * brand on near-black is unreadable as text on white, so it splits by job:
- * the fill keeps a bright lime (small dots, primary buttons) while anything
- * rendered *as text* uses a deeper green of the same family. Same colour
- * identity, legible on paper-white.
+ * Light mode. Same teal, same amber, same functional purple — carried
+ * through at the same hue but re-weighted so each one still passes
+ * contrast on white rather than staying at its near-black brightness.
  */
 :root[data-theme="light"] {
   --background: #ffffff;
-  --foreground: #0b0f0a;
-  --muted: rgba(11, 15, 10, 0.58);
-  --border: rgba(11, 15, 10, 0.12);
-  --surface: rgba(11, 15, 10, 0.028);
-  --surface-raised: rgba(11, 15, 10, 0.055);
+  --foreground: #0b0f11;
+  --muted: rgba(11, 15, 17, 0.58);
+  --border: rgba(11, 15, 17, 0.12);
+  --surface: rgba(11, 15, 17, 0.028);
+  --surface-raised: rgba(11, 15, 17, 0.055);
 
-  /* lime-700: still unmistakably the OHUN green, but it passes contrast on
-     white where #a3e635 does not come close. */
-  --accent: #4d7c0f;
-  --accent-strong: #3f6212;
-  --accent-soft: rgba(77, 124, 15, 0.1);
-  --accent-border: rgba(77, 124, 15, 0.3);
-  --accent-glow: rgba(77, 124, 15, 0.25);
+  --accent: #1f7c8c;
+  --accent-strong: #17636f;
+  --accent-soft: rgba(31, 124, 140, 0.1);
+  --accent-border: rgba(31, 124, 140, 0.3);
+  --accent-glow: rgba(31, 124, 140, 0.25);
   --accent-on: #ffffff;
 
-  --peer: #4f46e5;
-  --peer-soft: rgba(79, 70, 229, 0.1);
-  --peer-border: rgba(79, 70, 229, 0.3);
-  --peer-glow: rgba(79, 70, 229, 0.22);
+  --peer: #6b5fc4;
+  --peer-soft: rgba(107, 95, 196, 0.1);
+  --peer-border: rgba(107, 95, 196, 0.3);
+  --peer-glow: rgba(107, 95, 196, 0.22);
 
-  --danger: #dc2626;
-  --danger-soft: rgba(220, 38, 38, 0.1);
-  --danger-border: rgba(220, 38, 38, 0.3);
+  --warn: #a17419;
+  --warn-soft: rgba(161, 116, 25, 0.1);
+  --warn-border: rgba(161, 116, 25, 0.32);
 
-  --lit-wash-top: rgba(11, 15, 10, 0.03);
-  --lit-wash-bottom: rgba(11, 15, 10, 0.008);
-  --lit-edge: rgba(11, 15, 10, 0.08);
+  --danger: #b23b32;
+  --danger-soft: rgba(178, 59, 50, 0.1);
+  --danger-border: rgba(178, 59, 50, 0.3);
+
+  --lit-wash-top: rgba(11, 15, 17, 0.03);
+  --lit-wash-bottom: rgba(11, 15, 17, 0.008);
+  --lit-edge: rgba(11, 15, 17, 0.08);
   --grain-opacity: 0.03;
+
+  --weave-a: #e4e2dc;
+  --weave-b: #dad7cf;
 
   color-scheme: light;
 }
@@ -113,8 +122,9 @@
   --color-surface: var(--surface);
   --color-accent: var(--accent);
   --color-peer: var(--peer);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-figtree);
+  --font-mono: var(--font-plex-mono);
+  --font-serif: var(--font-newsreader);
 }
 
 * {
@@ -154,6 +164,26 @@ body {
 .bg-grain > * {
   position: relative;
   z-index: 1;
+}
+
+/* Diagonal "no signal" weave for a camera tile with nothing on it yet —
+   two near-black tones a few degrees apart, never a flat placeholder box. */
+.bg-weave {
+  background-image: repeating-linear-gradient(
+    115deg,
+    var(--weave-a) 0px,
+    var(--weave-a) 9px,
+    var(--weave-b) 9px,
+    var(--weave-b) 18px
+  );
+}
+
+/* The source-language line in a translated pair — original above,
+   translation below. Serif italic marks it as "what was actually said",
+   distinct from the sans-serif translation sitting under it. */
+.text-original {
+  font-family: var(--font-newsreader), Georgia, serif;
+  font-style: italic;
 }
 
 @keyframes pulse-ring {

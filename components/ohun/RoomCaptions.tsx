@@ -36,7 +36,7 @@ function LanguageLine({
   if (!text) return null;
 
   const styles = {
-    original: "text-[var(--foreground)]",
+    original: "text-[var(--foreground)] text-original",
     mine: "text-[var(--peer)] font-medium",
     other: "text-[var(--muted)]",
   }[tone];
@@ -193,7 +193,7 @@ export function RoomCaptions({
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold tracking-tight">You</p>
-              <p className="mt-0.5 text-sm leading-snug">{liveTranscript}</p>
+              <p className="mt-0.5 text-sm leading-snug text-original">{liveTranscript}</p>
               {isTranslating && (
                 <p className="mt-1 flex items-center gap-1.5 text-xs text-[var(--accent)]">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--accent)]" />

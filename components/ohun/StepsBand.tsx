@@ -43,7 +43,7 @@ function MockCall() {
         <span className="flex items-center gap-2 rounded-full border border-current/20 px-3 py-1.5 text-xs font-medium opacity-70">
           <span
             className="h-1.5 w-1.5 rounded-full"
-            style={{ background: "var(--accent-strong, #bef264)" }}
+            style={{ background: "var(--accent-strong, #7fd4e0)" }}
           />
           On a call
         </span>
@@ -74,7 +74,7 @@ function MockCall() {
         </span>
         <span
           className="ml-auto flex h-10 w-10 items-center justify-center rounded-full"
-          style={{ background: "var(--danger, #f87171)" }}
+          style={{ background: "var(--danger, #c4453d)" }}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="var(--background)">
             <path d="M3 10.5c5-4 13-4 18 0v3.2c0 .8-.7 1.4-1.5 1.3l-3-.4a1.4 1.4 0 0 1-1.2-1.3v-1.5c-2.7-1-5.9-1-8.6 0v1.5c0 .7-.5 1.2-1.2 1.3l-3 .4A1.4 1.4 0 0 1 3 13.7z" />

@@ -25,10 +25,10 @@ const OUTCOME_COPY: Record<CallOutcome, string> = {
 /** Everything that isn't a normal completed call reads as a problem. */
 const OUTCOME_TONE: Record<CallOutcome, string> = {
   completed: "text-[var(--accent)]",
-  missed: "text-red-400",
+  missed: "text-[var(--danger)]",
   declined: "text-[var(--muted)]",
   cancelled: "text-[var(--muted)]",
-  failed: "text-amber-400",
+  failed: "text-[var(--warn)]",
 };
 
 function formatDuration(seconds: number): string {

@@ -140,7 +140,7 @@ export function LiveCaptions({
                 </p>
 
                 {filter !== "translated" && (
-                  <p className="mt-0.5 flex items-start gap-1.5 text-sm leading-snug text-[var(--foreground)]">
+                  <p className="mt-0.5 flex items-start gap-1.5 text-sm leading-snug text-[var(--foreground)] text-original">
                     <span className="min-w-0 flex-1">{caption.originalText}</span>
                     <span className="mt-[3px]">
                       <PlayLineButton
@@ -188,7 +188,7 @@ export function LiveCaptions({
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold tracking-tight">You</p>
-              <p className="mt-0.5 text-sm leading-snug">{liveTranscript}</p>
+              <p className="mt-0.5 text-sm leading-snug text-original">{liveTranscript}</p>
               {isTranslating && (
                 <p className="mt-1 flex items-center gap-1.5 text-xs text-[var(--accent)]">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--accent)]" />
