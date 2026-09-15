@@ -13,7 +13,6 @@ import {
   LANGUAGE_FLAG,
   MAX_ROOM_PARTICIPANTS,
   activeParticipants,
-  getCallLanguage,
   type Profile,
   type Room,
   type RoomParticipant,
@@ -73,54 +72,58 @@ function ParticipantTile({
   const waiting = participant.state === "invited";
 
   return (
-    <div className="card-lit flex flex-col items-center gap-3 rounded-2xl p-4">
+    <div className="bg-weave relative aspect-video overflow-hidden rounded-2xl border border-[var(--border)]">
       {/* Never rendered for yourself: playing your own mic back would be
           an echo. */}
       {!isSelf && <audio ref={audioRef} autoPlay playsInline />}
 
-      <div className="relative flex items-center justify-center">
-        {cameraStream ? (
-          <div
-            className="h-[76px] w-[76px] overflow-hidden rounded-full border-2 transition-colors duration-300"
-            style={{ borderColor: connected || isSelf ? color : "var(--border)" }}
-          >
-            <video
-              ref={videoRef}
-              playsInline
-              muted={isSelf}
-              className={`h-full w-full object-cover ${isSelf ? "scale-x-[-1]" : ""}`}
-            />
+      {cameraStream ? (
+        <video
+          ref={videoRef}
+          playsInline
+          muted={isSelf}
+          className={`h-full w-full object-cover ${isSelf ? "scale-x-[-1]" : ""}`}
+        />
+      ) : (
+        <div className="flex h-full items-center justify-center">
+          <div className={waiting ? "opacity-50" : ""}>
+            <Avatar name={participant.profile.displayName} src={participant.profile.avatarUrl} />
           </div>
-        ) : (
-          <>
-            <span
-              aria-hidden
-              className="absolute h-[76px] w-[76px] rounded-full border-2 transition-colors duration-300"
-              style={{ borderColor: connected || isSelf ? color : "var(--border)" }}
-            />
-            <div className={waiting ? "opacity-50" : ""}>
-              <Avatar name={participant.profile.displayName} src={participant.profile.avatarUrl} />
-            </div>
-          </>
-        )}
-      </div>
+        </div>
+      )}
 
-      <div className="min-w-0 text-center">
-        <p className="truncate text-sm font-semibold tracking-tight">
+      {/* Language badge, top-left — the same corner every tile in the
+          room uses it, so the room reads as a set. */}
+      <span
+        className="absolute left-2 top-2 rounded-md bg-black/45 px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-wide backdrop-blur-sm"
+        style={{ color }}
+      >
+        {participant.language.toUpperCase()}
+      </span>
+
+      {/* Connection dot, top-right. */}
+      <span
+        className="absolute right-2 top-2 h-2 w-2 rounded-full"
+        style={{
+          backgroundColor: waiting ? "var(--muted)" : connected || isSelf ? color : "var(--warn)",
+        }}
+        title={waiting ? "Invited…" : connected ? "Connected" : "Connecting…"}
+      />
+
+      {/* Name, bottom-left, over a scrim so it reads on any background. */}
+      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/60 to-transparent px-2.5 pb-2 pt-5">
+        <p className="truncate text-xs font-medium text-white">
           {isSelf ? "You" : participant.profile.displayName}
         </p>
-        <p className="mt-0.5 truncate text-xs text-[var(--muted)]">
-          {LANGUAGE_FLAG[participant.language]} {getCallLanguage(participant.language)?.label}
-        </p>
+        {isSelf && stream ? (
+          <AudioWaveform stream={stream} active color="var(--accent-strong)" bars={10} className="h-4 w-12 shrink-0" />
+        ) : (
+          !connected &&
+          !waiting && (
+            <span className="shrink-0 font-mono text-[10px] text-white/70">connecting</span>
+          )
+        )}
       </div>
-
-      {isSelf && stream ? (
-        <AudioWaveform stream={stream} active color={color} bars={14} className="w-full" />
-      ) : (
-        <p className="text-[11px] font-medium" style={{ color: waiting ? "var(--muted)" : color }}>
-          {waiting ? "Invited…" : connected ? "Connected" : "Connecting…"}
-        </p>
-      )}
     </div>
   );
 }
