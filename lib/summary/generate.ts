@@ -1,7 +1,7 @@
 import "server-only";
-import Anthropic from "@anthropic-ai/sdk";
+import { completeText } from "@/lib/llm/groq";
 import { SUPPORTED_LANGUAGES, type CallLanguageCode } from "@/types";
-import { MissingAnthropicKeyError, TranslationFailedError } from "@/lib/translation/translate";
+import { TranslationFailedError } from "@/lib/translation/translate";
 
 /**
  * Turns a finished conversation into a short summary, written once per
@@ -9,8 +9,8 @@ import { MissingAnthropicKeyError, TranslationFailedError } from "@/lib/translat
  * someone else's language.
  */
 
-const MODEL = "claude-opus-5";
 const MAX_TOKENS = 4000;
+const REQUEST_TIMEOUT_MS = 25_000;
 
 /**
  * Below this there is nothing worth summarising, and a recap of a two-line
@@ -82,8 +82,6 @@ export async function generateSummary({
   utterances: SummaryUtterance[];
   languages: CallLanguageCode[];
 }): Promise<Partial<Record<CallLanguageCode, string>>> {
-  if (!process.env.ANTHROPIC_API_KEY) throw new MissingAnthropicKeyError();
-
   const targets = [...new Set(languages)];
   if (targets.length === 0 || utterances.length < MIN_UTTERANCES_FOR_SUMMARY) return {};
 
@@ -91,29 +89,15 @@ export async function generateSummary({
     .map((line) => `${line.speaker} (${languageName(line.language)}): ${line.text}`)
     .join("\n");
 
-  const client = new Anthropic();
-
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: MAX_TOKENS,
+  const raw = await completeText({
+    system: buildSystemPrompt(targets),
+    user: transcript,
+    maxTokens: MAX_TOKENS,
+    timeoutMs: REQUEST_TIMEOUT_MS,
     // Not in the latency path — the call is already over — so this one gets
     // room to think, unlike the live translation calls.
-    output_config: { effort: "medium" },
-    system: buildSystemPrompt(targets),
-    messages: [{ role: "user", content: transcript }],
+    reasoningEffort: "medium",
   });
-
-  if (response.stop_reason === "refusal") {
-    throw new TranslationFailedError("the summary was declined");
-  }
-
-  const raw = response.content
-    .filter((block): block is Anthropic.TextBlock => block.type === "text")
-    .map((block) => block.text)
-    .join("")
-    .trim();
-
-  if (!raw) throw new TranslationFailedError("the response was empty");
 
   const parsed = parseJsonObject(raw);
 
