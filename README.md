@@ -14,6 +14,13 @@ interpreter, no app to install on most platforms.
 Built for the AssemblyAI hackathon on Next.js 16, Supabase, AssemblyAI
 Universal-Streaming, and Groq.
 
+## Docs
+
+- [How to use OHUN](HOW_TO_USE.md) — a walkthrough for people using the app
+- [Pitch deck (PDF)](docs/OHUN-Presentation-Deck.pdf)
+- [Whitepaper (PDF)](docs/OHUN-Whitepaper.pdf) — architecture, the translation
+  pipeline, calling, security, and the tradeoffs behind them
+
 ## What it does
 
 **Translated chat.** Message anyone with an OHUN account. Every message and
@@ -113,7 +120,8 @@ recorded except in the post-call summary.
 - **Next.js 16** (App Router, Server Actions, Turbopack) + **React 19**
 - **Supabase** — Postgres with Row Level Security, Auth, Realtime
   (broadcast + `postgres_changes`), Storage
-- **AssemblyAI** — Universal-Streaming realtime speech-to-text
+- **AssemblyAI** — Universal-Streaming realtime speech-to-text on calls, and
+  batch transcription for voice notes (broader language coverage, Yoruba included)
 - **Groq** — translation and call summaries (`openai/gpt-oss-120b` by default, set by `GROQ_MODEL`)
 - **WebRTC** — `RTCPeerConnection` directly (no external calling SDK), STUN
   + Metered TURN
@@ -224,6 +232,11 @@ just don't reach a closed tab.
   square of the room size — fine for audio, and for a few simultaneous
   cameras, but not designed to scale past that without moving to a
   selective forwarding unit.
+- **Translation on Groq's free tier is capped** at 30 requests a minute and
+  1,000 a day. Every chat message and every spoken sentence on a call is one
+  request — plenty for demos, not for sustained traffic, which needs a paid
+  Groq tier. Past the limit, messages still send and calls still connect;
+  only the translation is missing until the limit resets.
 - **Translation runs on completed utterances**, so there is a short pause
   between finishing a sentence and hearing the translation — the tradeoff
   favours translation quality (full-sentence context) over shaving that
