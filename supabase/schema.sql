@@ -1130,7 +1130,7 @@ create policy "users manage their own push subscriptions"
 -- narrower six-language set forever, because AssemblyAI's realtime
 -- streaming models have no Yoruba model to transcribe it with. A profile's
 -- preferred_language has no such ceiling: chat translation runs through
--- Claude on already-finished text, and a voice note is transcribed by
+-- AssemblyAI's LLM Gateway on already-finished text, and a voice note is transcribed by
 -- AssemblyAI's batch API (lib/chat/transcribe.ts), which covers a much
 -- broader set of languages, Yoruba included.
 --
