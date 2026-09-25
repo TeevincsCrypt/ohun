@@ -87,7 +87,7 @@ never interrupts captions or translation.
   supports screen capture — so the button simply doesn't appear on a
   device that can't do it.
 
-When the call ends, you land on a recap screen with an AI-written
+When the call ends, you land on a recap screen with a Claude-written
 summary of what was actually discussed (once the call has enough
 substance to summarise) — written in *your* language, regardless of what
 language the other person spoke.

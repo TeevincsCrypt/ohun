@@ -11,9 +11,8 @@ transcribing, translating the *meaning*, and delivering it in the other
 person's language as it happens. No typing exercise, no waiting for a human
 interpreter, no app to install on most platforms.
 
-Built for the AssemblyAI hackathon on Next.js 16, Supabase, and AssemblyAI —
-Universal-Streaming for speech-to-text, and the AssemblyAI LLM Gateway for
-translation and call summaries.
+Built for the AssemblyAI hackathon on Next.js 16, Supabase, AssemblyAI
+Universal-Streaming, and Claude.
 
 ## What it does
 
@@ -42,7 +41,7 @@ identity.
 **Scheduling.** Book a call for later with someone; they get an email
 invite (via Resend) with the details.
 
-**Call summaries.** After a call ends, OHUN writes a short recap of what
+**Call summaries.** After a call ends, Claude writes a short recap of what
 was actually discussed — one version per language present, so nobody reads
 a summary of their own call in someone else's language.
 
@@ -53,8 +52,7 @@ the tab isn't open.
 ## Supported languages
 
 **English, French, Spanish, German, Portuguese, Italian, and Yoruba** — as
-an account's own language, for chat and voice notes. AssemblyAI's LLM Gateway
-translates text
+an account's own language, for chat and voice notes. Claude translates text
 in any of these seven, and voice notes are transcribed by AssemblyAI's
 *batch* API (`lib/chat/transcribe.ts`), which covers a much broader set of
 languages than realtime streaming does — Yoruba included.
@@ -81,8 +79,8 @@ Your microphone / typed message
 AssemblyAI Universal-Streaming — realtime transcription, turn by turn
         │  finished utterance
         ▼
-AssemblyAI LLM Gateway — translates meaning (not word-for-word),
-         preserving tone, recovering from speech-recognition slips
+Claude — translates meaning (not word-for-word), preserving tone,
+         recovering from speech-recognition slips
         │  translated text
         ▼
 Captioned for both sides · spoken aloud with the Web Speech API on a call
@@ -90,8 +88,8 @@ Captioned for both sides · spoken aloud with the Web Speech API on a call
 
 Secrets never reach the browser. The client gets a short-lived AssemblyAI
 token from the server and streams audio directly to AssemblyAI; translation
-always goes browser → our server → AssemblyAI LLM Gateway → browser, so
-`ASSEMBLYAI_API_KEY` never leaves the server.
+always goes browser → our server → Claude → browser, so `ANTHROPIC_API_KEY`
+and `ASSEMBLYAI_API_KEY` never leave the server.
 
 **Calls (1:1 and group) are peer-to-peer WebRTC.** Supabase Realtime carries
 only the signalling (SDP offers/answers and ICE candidates) and presence;
@@ -115,9 +113,8 @@ recorded except in the post-call summary.
 - **Next.js 16** (App Router, Server Actions, Turbopack) + **React 19**
 - **Supabase** — Postgres with Row Level Security, Auth, Realtime
   (broadcast + `postgres_changes`), Storage
-- **AssemblyAI** — Universal-Streaming realtime speech-to-text, batch
-  transcription for voice notes, and the LLM Gateway for translation and
-  call summaries (model set by `ASSEMBLYAI_LLM_MODEL`)
+- **AssemblyAI** — Universal-Streaming realtime speech-to-text
+- **Anthropic Claude** — translation and call summaries
 - **WebRTC** — `RTCPeerConnection` directly (no external calling SDK), STUN
   + Metered TURN
 - **Web Push** — VAPID, service worker, Web App Manifest for installable
@@ -140,7 +137,7 @@ app/
   conversation/                single-device demo: two languages, one mic at a time
   api/
     assemblyai/token/           mints a short-lived AssemblyAI streaming token
-    translate/, translate-many/  translate one or many utterances via the LLM Gateway
+    translate/, translate-many/  translate one or many utterances via Claude
     ice-servers/                 resolves STUN/TURN config server-side
     rooms/[roomId]/              group-call roster endpoint
 
@@ -150,8 +147,8 @@ components/
                                LiveCaptions, PushNotificationToggle, ...
 
 lib/
-  assemblyai/                 token minting + LLM Gateway client (server), realtime session + hook (browser)
-  translation/                 translation calls (server + client)
+  assemblyai/                 token minting (server), realtime session + hook (browser)
+  translation/                 Claude translation calls (server + client)
   audio/                       mic capture (AudioWorklet), Web Speech playback, queueing
   webrtc/
     peer.ts                     one 1:1 RTCPeerConnection — mic, screen share, camera
@@ -161,7 +158,7 @@ lib/
   chat/                        thread + message actions, translation, transcription
   push/                        Web Push subscribe/send
   schedule/, email/             scheduled calls + Resend invites
-  summary/                     post-call recap
+  summary/                     post-call Claude recap
   supabase/                    client/server/admin Supabase clients
 
 supabase/schema.sql            full Postgres schema + RLS policies
@@ -176,8 +173,8 @@ types/                          shared domain types
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | yes | Supabase project URL. Publishable — RLS protects the data. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | Supabase anon key. Publishable. Never use the service-role key here. |
-| `ASSEMBLYAI_API_KEY` | yes | Server-only. Mints short-lived streaming tokens for speech-to-text, transcribes voice notes, and calls the LLM Gateway to translate utterances and write call summaries. |
-| `ASSEMBLYAI_LLM_MODEL` | optional | LLM Gateway model used for translation and summaries. Defaults to the one set in `lib/assemblyai/llm.ts`; `https://llm-gateway.assemblyai.com/v1/models` lists the IDs it accepts. |
+| `ASSEMBLYAI_API_KEY` | yes | Server-only. Mints short-lived streaming tokens for speech-to-text. |
+| `ANTHROPIC_API_KEY` | yes | Server-only. Used to translate utterances and write call summaries. |
 | `SUPABASE_SERVICE_ROLE_KEY` | recommended | Server-only, bypasses RLS. Needed for scheduled-call email lookups and delivering push notifications to a *different* user than the caller. |
 | `METERED_APP_NAME` / `METERED_API_KEY` | recommended | Server-only. Preferred TURN path — per-session, geo-nearest credentials. Without a working TURN relay, calls fail on restrictive networks. |
 | `METERED_TURN_USERNAME` / `METERED_TURN_CREDENTIAL` | optional | Server-only. Static TURN fallback, used only if the pair above is unset. |
@@ -189,7 +186,7 @@ types/                          shared domain types
 
 None of the non-`NEXT_PUBLIC_` variables may ever be prefixed with
 `NEXT_PUBLIC_` — that exposes them to the browser. Copy `.env.example` to
-`.env.local` and fill in at least Supabase and AssemblyAI to run
+`.env.local` and fill in at least Supabase, AssemblyAI, and Anthropic to run
 the app; the rest degrade gracefully when unset (see the table above and the
 comments in `.env.example`).
 
@@ -198,8 +195,8 @@ comments in `.env.example`).
 1. Create a Supabase project, then run `supabase/schema.sql` in the SQL
    editor (Dashboard → SQL Editor) — it creates every table, RLS policy, and
    the Realtime publications the app needs.
-2. Copy `.env.example` to `.env.local` and fill in Supabase and AssemblyAI at
-   minimum.
+2. Copy `.env.example` to `.env.local` and fill in Supabase, AssemblyAI, and
+   Anthropic at minimum.
 3. `npm install`
 4. `npm run dev`
 

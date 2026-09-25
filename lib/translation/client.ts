@@ -9,7 +9,7 @@ export class TranslationError extends Error {
 
 /**
  * Browser-only. Sends one utterance to our own translation route, which
- * calls AssemblyAI's LLM Gateway server-side. The API key never reaches the client.
+ * calls Claude server-side. The Anthropic API key never reaches the client.
  */
 export async function translateText(
   request: TranslationRequest,

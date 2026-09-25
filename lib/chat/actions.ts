@@ -163,7 +163,7 @@ async function otherLanguages(
     .select("id, preferred_language")
     .in("id", ids);
 
-  // Chat has no CallLanguageCode ceiling — the LLM Gateway translates Yoruba text
+  // Chat has no CallLanguageCode ceiling — Claude translates Yoruba text
   // and voice notes just as well as any other language here (see the
   // CallLanguageCode doc comment in types/account.ts). isSupportedLanguage
   // only guards against a row with no usable language at all.

@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server";
 import { translateToMany } from "@/lib/translation/translate-many";
-import { TranslationFailedError } from "@/lib/translation/translate";
-import { MissingApiKeyError } from "@/lib/assemblyai/token";
+import { MissingAnthropicKeyError, TranslationFailedError } from "@/lib/translation/translate";
 import { createClient } from "@/lib/supabase/server";
 import { isCallLanguage, MAX_ROOM_PARTICIPANTS, type CallLanguageCode } from "@/types";
 
 /**
  * Vercel kills a serverless function at 10 seconds by default, and a
- * translation plus its one retry can exceed that. The function dying
+ * translation with adaptive thinking can exceed that. The function dying
  * mid-request is indistinguishable from a network failure at the browser,
  * which is what "could not reach the translation server" actually was.
  */
@@ -17,7 +16,7 @@ export const maxDuration = 60;
 /**
  * Translates one utterance into every language a group call needs.
  *
- * Requires a session: this spends AssemblyAI LLM Gateway usage per request, and an
+ * Requires a session: this spends Anthropic tokens per request, and an
  * unauthenticated caller could otherwise run up the bill freely.
  */
 export async function POST(request: Request) {
@@ -62,7 +61,7 @@ export async function POST(request: Request) {
     });
     return NextResponse.json(result);
   } catch (error) {
-    if (error instanceof MissingApiKeyError) {
+    if (error instanceof MissingAnthropicKeyError) {
       console.error("[api/translate-many]", error.message);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }

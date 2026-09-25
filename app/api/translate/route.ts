@@ -1,19 +1,22 @@
 import { NextResponse } from "next/server";
-import { translateText, TranslationFailedError } from "@/lib/translation/translate";
-import { MissingApiKeyError } from "@/lib/assemblyai/token";
+import {
+  translateText,
+  MissingAnthropicKeyError,
+  TranslationFailedError,
+} from "@/lib/translation/translate";
 import { getLanguage } from "@/types";
 
 /**
  * Vercel kills a serverless function at 10 seconds by default, and a
- * translation plus its one retry can exceed that. The function dying
+ * translation with adaptive thinking can exceed that. The function dying
  * mid-request is indistinguishable from a network failure at the browser,
  * which is what "could not reach the translation server" actually was.
  */
 export const maxDuration = 60;
 
 /**
- * Translates one utterance. The AssemblyAI API key stays server-side —
- * see lib/assemblyai/llm.ts.
+ * Translates one utterance. The Anthropic API key stays server-side —
+ * see lib/translation/translate.ts.
  */
 export async function POST(request: Request) {
   let body: unknown;
@@ -55,7 +58,7 @@ export async function POST(request: Request) {
     });
     return NextResponse.json(result);
   } catch (error) {
-    if (error instanceof MissingApiKeyError) {
+    if (error instanceof MissingAnthropicKeyError) {
       console.error("[api/translate]", error.message);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }

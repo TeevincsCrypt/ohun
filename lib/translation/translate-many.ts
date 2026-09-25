@@ -1,7 +1,7 @@
 import "server-only";
-import { completeText, LlmRequestFailedError } from "@/lib/assemblyai/llm";
+import Anthropic from "@anthropic-ai/sdk";
 import { SUPPORTED_LANGUAGES, type LanguageCode } from "@/types";
-import { TranslationFailedError } from "./translate";
+import { MissingAnthropicKeyError, TranslationFailedError } from "./translate";
 
 /**
  * Translates one utterance into several languages in a single request.
@@ -13,10 +13,22 @@ import { TranslationFailedError } from "./translate";
  * room hears their translation noticeably later than anyone else.
  */
 
+const MODEL = "claude-opus-5";
 const MAX_TOKENS = 2000;
 
-/** Same budget as a single translation — see translate.ts. */
+/**
+ * Fail before the platform does.
+ *
+ * The SDK's default is a ten-minute timeout with two retries, which is far
+ * longer than the serverless function is allowed to live. A call that hangs
+ * would take the whole function down with it, and a dying function reaches
+ * the browser as a network error rather than as anything this code can
+ * report. Bounded so that a timeout plus its one retry still finishes
+ * inside the function's own limit, leaving a real error to return.
+ */
 const REQUEST_TIMEOUT_MS = 25_000;
+const MAX_RETRIES = 1;
+
 
 function languageName(code: LanguageCode): string {
   return SUPPORTED_LANGUAGES.find((language) => language.code === code)?.label ?? code;
@@ -81,16 +93,34 @@ export async function translateToMany({
   from,
   to,
 }: TranslateManyRequest): Promise<TranslateManyResult> {
+  if (!process.env.ANTHROPIC_API_KEY) throw new MissingAnthropicKeyError();
+
   const targets = [...new Set(to)].filter((code) => code !== from);
   if (targets.length === 0) return { byLanguage: {} };
 
+  const client = new Anthropic({ timeout: REQUEST_TIMEOUT_MS, maxRetries: MAX_RETRIES });
+
   try {
-    const raw = await completeText({
+    const response = await client.messages.create({
+      model: MODEL,
+      max_tokens: MAX_TOKENS,
+      // In the latency path of a live conversation — minimal deliberation.
+      output_config: { effort: "low" },
       system: buildSystemPrompt(from, targets),
-      user: text,
-      maxTokens: MAX_TOKENS,
-      timeoutMs: REQUEST_TIMEOUT_MS,
+      messages: [{ role: "user", content: text }],
     });
+
+    if (response.stop_reason === "refusal") {
+      throw new TranslationFailedError("the translation was declined");
+    }
+
+    const raw = response.content
+      .filter((block): block is Anthropic.TextBlock => block.type === "text")
+      .map((block) => block.text)
+      .join("")
+      .trim();
+
+    if (!raw) throw new TranslationFailedError("the response was empty");
 
     const parsed = parseJsonObject(raw);
 
@@ -108,10 +138,14 @@ export async function translateToMany({
 
     return { byLanguage };
   } catch (error) {
-    if (error instanceof LlmRequestFailedError) throw new TranslationFailedError(error.message);
+    if (error instanceof TranslationFailedError || error instanceof MissingAnthropicKeyError) {
+      throw error;
+    }
     if (error instanceof SyntaxError) {
       throw new TranslationFailedError("the response was not valid JSON");
     }
-    throw error;
+    throw new TranslationFailedError(
+      error instanceof Error ? error.message : "unknown error",
+    );
   }
 }
