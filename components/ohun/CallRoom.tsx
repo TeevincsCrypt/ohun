@@ -12,7 +12,6 @@ import {
   LANGUAGE_FLAG,
   getCallLanguage,
   type Call,
-  type CallCaption,
   type CallConnectionState,
   type Profile,
 } from "@/types";
@@ -361,8 +360,10 @@ export function CallRoom({
   const selfLanguage = getCallLanguage(self.preferredLanguage);
   const otherLanguage = getCallLanguage(other.preferredLanguage);
 
-  // The most recent utterance from either side, shown as the caption
-  // overlaid on the stage.
+  // The most recent utterance from each side, shown as the "you said /
+  // they hear" pair beneath the avatars.
+  const lastFromSelf = [...captions].reverse().find((caption) => caption.fromSelf);
+  const lastFromOther = [...captions].reverse().find((caption) => !caption.fromSelf);
   const latest = captions[captions.length - 1];
 
   return (
@@ -476,40 +477,48 @@ export function CallRoom({
             </div>
           </div>
 
-          {/* The stage — one active-speaker frame, badges and the live
-              caption overlaid on it rather than in separate rows beneath.
-              Screen share and camera each get their own frame when active
-              (never both at once in practice); with neither, the frame
-              shows the weave with both avatars resting on it. */}
-          {remoteScreenStream ? (
-            <div className="animate-rise bg-weave relative mt-6 aspect-video shrink-0 overflow-hidden rounded-2xl border border-[var(--border)]">
+          {/* The other side's shared screen. Sits above the avatar stage
+              rather than replacing it — captions and translation keep
+              running underneath a presentation exactly as they do under
+              plain conversation, which is the whole reason to build this as
+              an addition rather than a separate "video call" mode. */}
+          {remoteScreenStream && (
+            <div className="animate-rise bg-weave mt-6 shrink-0 overflow-hidden rounded-2xl border border-[var(--border)]">
               <video
                 ref={screenVideoRef}
                 muted
                 playsInline
-                className="h-full w-full object-contain"
+                className="max-h-[42vh] w-full object-contain"
               />
-              <StageIdentity
-                name={`${other.displayName.split(" ")[0]} is presenting`}
-                direction={`${selfLanguage?.code.toUpperCase()} → ${otherLanguage?.code.toUpperCase()}`}
-              />
-              <LiveBadge isTranslating={isTranslating} />
-              <StageCaption caption={latest} self={self} other={other} />
+              <p className="flex items-center gap-1.5 border-t border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--muted)]">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <rect x="2" y="4" width="20" height="13" rx="2" />
+                  <path d="M8 21h8M12 17v4" />
+                </svg>
+                {other.displayName.split(" ")[0]} is sharing their screen
+              </p>
             </div>
-          ) : remoteCameraStream || localCameraStream ? (
-            <div className="animate-rise bg-weave relative mt-6 aspect-video shrink-0 overflow-hidden rounded-2xl border border-[var(--border)]">
+          )}
+
+          {/* Camera video, same "addition, not a mode" reasoning as the
+              screen share panel above — captions keep running underneath.
+              The other side's camera is the main frame when it exists; my
+              own preview floats over a corner of it, or fills the frame on
+              its own while I am the only one with a camera on. */}
+          {(remoteCameraStream || localCameraStream) && (
+            <div className="animate-rise bg-weave relative mt-6 shrink-0 overflow-hidden rounded-2xl border border-[var(--border)]">
               {remoteCameraStream ? (
                 <video
                   ref={remoteCameraVideoRef}
                   playsInline
-                  className="h-full w-full object-cover"
+                  className="max-h-[42vh] w-full object-contain"
                 />
               ) : (
                 <video
                   ref={localCameraVideoRef}
                   playsInline
                   muted
-                  className="h-full w-full scale-x-[-1] object-cover"
+                  className="max-h-[42vh] w-full scale-x-[-1] object-contain"
                 />
               )}
               {remoteCameraStream && localCameraStream && (
@@ -520,59 +529,102 @@ export function CallRoom({
                   className="absolute bottom-3 right-3 h-24 w-36 scale-x-[-1] rounded-lg border border-[var(--border)] object-cover sm:h-28 sm:w-44"
                 />
               )}
-              <StageIdentity
-                name={remoteCameraStream ? other.displayName : self.displayName}
-                direction={`${selfLanguage?.code.toUpperCase()} → ${otherLanguage?.code.toUpperCase()}`}
-              />
-              <LiveBadge isTranslating={isTranslating} />
-              <StageCaption caption={latest} self={self} other={other} />
-            </div>
-          ) : (
-            <div className="animate-rise bg-weave relative mt-6 flex aspect-video shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-[var(--border)]">
-              <div className="flex items-center gap-8 sm:gap-12">
-                <div className="flex flex-col items-center gap-3">
-                  <SpeakerAvatar
-                    profile={self}
-                    color="var(--accent)"
-                    glow="var(--accent-glow)"
-                    speaking={connected && micEnabled}
-                  />
-                  <AudioWaveform
-                    stream={localStream}
-                    active={connected && micEnabled}
-                    color="var(--accent)"
-                    bars={14}
-                    className="hidden w-24 sm:flex"
-                  />
-                </div>
-                <div className="flex flex-col items-center gap-3">
-                  <SpeakerAvatar
-                    profile={other}
-                    color="var(--peer)"
-                    glow="var(--peer-glow)"
-                    speaking={connected && speakerEnabled}
-                  />
-                  <AudioWaveform
-                    stream={remoteStream}
-                    active={connected && speakerEnabled}
-                    color="var(--peer)"
-                    bars={14}
-                    className="hidden w-24 sm:flex"
-                  />
-                </div>
-              </div>
-              <StageIdentity
-                name={other.displayName}
-                direction={`${selfLanguage?.code.toUpperCase()} → ${otherLanguage?.code.toUpperCase()}`}
-              />
-              <LiveBadge isTranslating={isTranslating} />
-              <StageCaption caption={latest} self={self} other={other} />
+              <p className="flex items-center gap-1.5 border-t border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--muted)]">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M15 10l5-3v10l-5-3" />
+                  <rect x="2" y="6" width="13" height="12" rx="2" />
+                </svg>
+                {remoteCameraStream
+                  ? `${other.displayName.split(" ")[0]}'s camera`
+                  : `Your camera — waiting for ${other.displayName.split(" ")[0]} to turn theirs on`}
+              </p>
             </div>
           )}
 
-          {/* The meters, for viewports too narrow to show them on the
-              stage above. */}
-          <div className="mt-3 flex items-center gap-3 sm:hidden">
+          {/* Avatars, with the live level meters between and beside them. */}
+          <div className="mt-8 flex items-center justify-center gap-4 sm:gap-5">
+            <AudioWaveform
+              stream={localStream}
+              active={connected && micEnabled}
+              color="var(--accent)"
+              className="hidden w-full max-w-[150px] sm:flex"
+              mirrored
+            />
+
+            <SpeakerAvatar
+              profile={self}
+              color="var(--accent)"
+              glow="var(--accent-glow)"
+              speaking={connected && micEnabled}
+            />
+
+            <AudioWaveform
+              stream={localStream}
+              active={connected && micEnabled}
+              color="var(--accent)"
+              bars={18}
+              className="hidden w-full max-w-[110px] sm:flex"
+            />
+
+            {/* Translation hub */}
+            <div className="relative flex shrink-0 flex-col items-center">
+              <span
+                aria-hidden
+                className={`absolute -inset-3 rounded-full transition-opacity duration-500 ${
+                  isTranslating ? "animate-breathe opacity-100" : "opacity-0"
+                }`}
+                style={{
+                  background: "radial-gradient(circle, var(--accent-glow) 0%, transparent 70%)",
+                }}
+              />
+              <span
+                className="relative flex h-14 w-14 items-center justify-center rounded-full border"
+                style={{
+                  borderColor: isTranslating ? "var(--accent)" : "var(--border)",
+                  background: "var(--surface)",
+                }}
+              >
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={isTranslating ? "var(--accent)" : "var(--muted)"}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                >
+                  <path d="M5 9v6M9 5v14M15 7v10M19 10v4" />
+                </svg>
+              </span>
+            </div>
+
+            <AudioWaveform
+              stream={remoteStream}
+              active={connected && speakerEnabled}
+              color="var(--peer)"
+              bars={18}
+              className="hidden w-full max-w-[110px] sm:flex"
+              mirrored
+            />
+
+            <SpeakerAvatar
+              profile={other}
+              color="var(--peer)"
+              glow="var(--peer-glow)"
+              speaking={connected && speakerEnabled}
+            />
+
+            <AudioWaveform
+              stream={remoteStream}
+              active={connected && speakerEnabled}
+              color="var(--peer)"
+              className="hidden w-full max-w-[150px] sm:flex"
+            />
+          </div>
+
+          {/* The meters, for viewports too narrow to sit them beside the
+              avatars. */}
+          <div className="mt-5 flex items-center gap-3 sm:hidden">
             <AudioWaveform
               stream={localStream}
               active={connected && micEnabled}
@@ -590,19 +642,72 @@ export function CallRoom({
             />
           </div>
 
-          {/* Names, kept compact now that identity lives on the stage
-              badge above — still here for the full name, handle, and
-              language every account actually has. */}
-          <div className="mt-5 flex items-center justify-between gap-3 text-xs text-[var(--muted)]">
-            <span className="min-w-0 truncate">
-              <span className="font-medium text-[var(--foreground)]">{self.displayName}</span>{" "}
-              @{self.username} · {LANGUAGE_FLAG[self.preferredLanguage]} {selfLanguage?.label}
-            </span>
-            <span className="min-w-0 truncate text-right">
-              <span className="font-medium text-[var(--foreground)]">{other.displayName}</span>{" "}
-              @{other.username} · {LANGUAGE_FLAG[other.preferredLanguage]} {otherLanguage?.label}
-            </span>
+          {/* Names + the direction of translation */}
+          {/* Two columns on a phone with the translation badge dropped onto
+              its own row beneath: squeezed between the names it left them
+              about a third of the width each, truncating most real names. */}
+          <div className="mt-6 grid grid-cols-2 items-start gap-3 sm:grid-cols-[1fr_auto_1fr] sm:gap-4">
+            <div className="min-w-0 text-center">
+              <p className="truncate text-lg font-bold tracking-tight sm:text-xl">
+                {self.displayName}
+              </p>
+              <p className="truncate text-sm text-[var(--muted)]">@{self.username}</p>
+              <p className="mt-1 text-sm">
+                {LANGUAGE_FLAG[self.preferredLanguage]}{" "}
+                <span className="text-[var(--muted)]">{selfLanguage?.label}</span>
+              </p>
+            </div>
+
+            <div className="order-last col-span-2 flex flex-col items-center gap-1.5 pt-1 sm:order-none sm:col-span-1">
+              <span
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  isTranslating
+                    ? "border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent)]"
+                    : "border-[var(--border)] text-[var(--muted)]"
+                }`}
+              >
+                {isTranslating ? "Translating…" : "Live translation"}
+              </span>
+              <span className="text-xs">
+                <span className="text-[var(--accent)]">{selfLanguage?.label}</span>
+                <span className="mx-1 text-[var(--muted)]">→</span>
+                <span className="text-[var(--peer)]">{otherLanguage?.label}</span>
+              </span>
+            </div>
+
+            <div className="min-w-0 text-center">
+              <p className="truncate text-lg font-bold tracking-tight sm:text-xl">
+                {other.displayName}
+              </p>
+              <p className="truncate text-sm text-[var(--muted)]">@{other.username}</p>
+              <p className="mt-1 text-sm">
+                {LANGUAGE_FLAG[other.preferredLanguage]}{" "}
+                <span className="text-[var(--muted)]">{otherLanguage?.label}</span>
+              </p>
+            </div>
           </div>
+
+          {/* Most recent utterance, each side */}
+          {(lastFromSelf || lastFromOther) && (
+            <div className="mt-7 grid gap-3 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
+              <UtteranceCard
+                flag={LANGUAGE_FLAG[self.preferredLanguage]}
+                label="You said"
+                text={lastFromSelf?.originalText ?? "—"}
+                color="var(--accent)"
+                original
+              />
+              <span aria-hidden className="hidden text-[var(--muted)] sm:block">
+                →
+              </span>
+              <UtteranceCard
+                flag={LANGUAGE_FLAG[other.preferredLanguage]}
+                label={`${other.displayName.split(" ")[0]} hears`}
+                text={lastFromSelf?.translatedText ?? "—"}
+                color="var(--peer)"
+              />
+            </div>
+          )}
 
           {/* Errors and capability warnings, kept out of the way until needed. */}
           {(error || transcriptionError || !canSpeakAloud) && (
@@ -720,58 +825,34 @@ export function CallRoom({
   );
 }
 
-/** Who this stage frame is of, and which way translation is running —
-    pinned to its top-left corner the way a real call overlays a name
-    tag on the video rather than captioning it separately below. */
-function StageIdentity({ name, direction }: { name: string; direction: string }) {
-  return (
-    <div className="absolute left-3 top-3 rounded-xl bg-black/45 px-3 py-2 backdrop-blur-sm sm:left-4 sm:top-4">
-      <p className="truncate text-sm font-semibold text-white">{name}</p>
-      <p className="mt-0.5 font-mono text-[11px] tracking-wide text-white/70">{direction}</p>
-    </div>
-  );
-}
-
-/** Top-right corner pill — the one place "translation is active" gets
-    said in as many words, everywhere else it's just the accent colour. */
-function LiveBadge({ isTranslating }: { isTranslating: boolean }) {
-  return (
-    <span className="absolute right-3 top-3 flex items-center gap-1.5 rounded-full bg-black/45 px-3 py-1 font-mono text-[11px] text-[var(--accent)] backdrop-blur-sm sm:right-4 sm:top-4">
-      <span
-        className={`h-1.5 w-1.5 rounded-full bg-[var(--accent)] ${isTranslating ? "animate-pulse" : ""}`}
-      />
-      {isTranslating ? "Translating" : "Live"}
-    </span>
-  );
-}
-
-/** The most recent line, original above and in the source-language serif
-    italic, translation below in the hearing side's colour — overlaid on
-    the stage itself rather than in a card underneath it. */
-function StageCaption({
-  caption,
-  self,
-  other,
+function UtteranceCard({
+  flag,
+  label,
+  text,
+  color,
+  original = false,
 }: {
-  caption: CallCaption | undefined;
-  self: Profile;
-  other: Profile;
+  flag: string;
+  label: string;
+  text: string;
+  color: string;
+  /** The line as actually spoken, not the translation — set for the "You
+      said" side so it reads in the same serif italic as everywhere else
+      the source language appears. */
+  original?: boolean;
 }) {
-  if (!caption) return null;
-  const listenerColor = caption.fromSelf ? "var(--peer)" : "var(--accent)";
-  const speakerName = caption.fromSelf ? self.displayName.split(" ")[0] : other.displayName.split(" ")[0];
-
   return (
-    <div className="absolute inset-x-3 bottom-3 sm:inset-x-4 sm:bottom-4">
-      <div className="rounded-2xl bg-black/55 px-4 py-3 backdrop-blur-md">
-        <p className="font-mono text-[10px] uppercase tracking-wide text-white/50">{speakerName}</p>
-        <p className="text-original mt-1 text-sm leading-snug text-white">{caption.originalText}</p>
-        {caption.translatedText && (
-          <p className="mt-1 text-sm font-medium leading-snug" style={{ color: listenerColor }}>
-            {caption.translatedText}
-          </p>
-        )}
-      </div>
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+      <p className="flex items-center gap-2 text-xs font-medium text-[var(--muted)]">
+        <span aria-hidden>{flag}</span>
+        {label}
+      </p>
+      <p
+        className={`mt-2 text-base font-medium leading-snug ${original ? "text-original" : ""}`}
+        style={{ color }}
+      >
+        {text}
+      </p>
     </div>
   );
 }
