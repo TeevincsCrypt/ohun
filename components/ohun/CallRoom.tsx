@@ -212,10 +212,10 @@ function ControlButton({
         onClick={onClick}
         disabled={disabled}
         aria-label={label}
-        className="flex h-11 items-center gap-2 rounded-full bg-[var(--danger)] px-3.5 text-sm font-semibold text-white shadow-[0_8px_28px_-6px_var(--danger-border)] transition-transform duration-150 hover:brightness-110 active:scale-95 disabled:opacity-50 sm:px-5"
+        title={label}
+        className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--danger)] text-[#1a0505] shadow-[0_8px_28px_-6px_var(--danger-border)] transition-transform duration-150 hover:brightness-110 active:scale-95 disabled:opacity-50"
       >
         {children}
-        {showLabel && <span className="hidden sm:inline">{label}</span>}
       </button>
     );
   }
@@ -226,14 +226,21 @@ function ControlButton({
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
-      className={`flex h-11 items-center gap-2 rounded-full border px-3 text-sm font-medium transition-colors disabled:opacity-50 sm:px-4 ${
-        active
-          ? "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-raised)]"
-          : "border-[var(--danger-border)] bg-[var(--danger-soft)] text-[var(--danger)]"
-      }`}
+      title={label}
+      className="group flex flex-col items-center gap-1.5 disabled:opacity-50"
     >
-      {children}
-      {showLabel && <span className="hidden sm:inline">{label}</span>}
+      <span
+        className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors ${
+          active
+            ? "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] group-hover:bg-[var(--surface-raised)]"
+            : "border-[var(--danger-border)] bg-[var(--danger-soft)] text-[var(--danger)]"
+        }`}
+      >
+        {children}
+      </span>
+      {showLabel && (
+        <span className="text-[11px] font-medium text-[var(--muted)]">{label}</span>
+      )}
     </button>
   );
 }
@@ -483,7 +490,7 @@ export function CallRoom({
               plain conversation, which is the whole reason to build this as
               an addition rather than a separate "video call" mode. */}
           {remoteScreenStream && (
-            <div className="animate-rise bg-weave mt-6 shrink-0 overflow-hidden rounded-2xl border border-[var(--border)]">
+            <div className="animate-rise mt-6 shrink-0 overflow-hidden rounded-2xl border border-[var(--border)] bg-black">
               <video
                 ref={screenVideoRef}
                 muted
@@ -506,7 +513,7 @@ export function CallRoom({
               own preview floats over a corner of it, or fills the frame on
               its own while I am the only one with a camera on. */}
           {(remoteCameraStream || localCameraStream) && (
-            <div className="animate-rise bg-weave relative mt-6 shrink-0 overflow-hidden rounded-2xl border border-[var(--border)]">
+            <div className="animate-rise relative mt-6 shrink-0 overflow-hidden rounded-2xl border border-[var(--border)] bg-black">
               {remoteCameraStream ? (
                 <video
                   ref={remoteCameraVideoRef}
@@ -695,7 +702,6 @@ export function CallRoom({
                 label="You said"
                 text={lastFromSelf?.originalText ?? "—"}
                 color="var(--accent)"
-                original
               />
               <span aria-hidden className="hidden text-[var(--muted)] sm:block">
                 →
@@ -723,7 +729,7 @@ export function CallRoom({
           )}
 
           {/* Controls */}
-          <div className="mt-auto flex flex-wrap items-center justify-center gap-2.5 pt-8">
+          <div className="mt-auto flex items-center justify-center gap-6 pt-8">
             <ControlButton
               label={micEnabled ? "Mute" : "Unmute"}
               active={micEnabled}
@@ -802,7 +808,7 @@ export function CallRoom({
             )}
 
             <ControlButton label="End call" tone="danger" onClick={() => void endCall()}>
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M3 10.5c5-4 13-4 18 0v3.2c0 .8-.7 1.4-1.5 1.3l-3-.4a1.4 1.4 0 0 1-1.2-1.3v-1.5c-2.7-1-5.9-1-8.6 0v1.5c0 .7-.5 1.2-1.2 1.3l-3 .4A1.4 1.4 0 0 1 3 13.7z" />
               </svg>
             </ControlButton>
@@ -830,16 +836,11 @@ function UtteranceCard({
   label,
   text,
   color,
-  original = false,
 }: {
   flag: string;
   label: string;
   text: string;
   color: string;
-  /** The line as actually spoken, not the translation — set for the "You
-      said" side so it reads in the same serif italic as everywhere else
-      the source language appears. */
-  original?: boolean;
 }) {
   return (
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
@@ -847,10 +848,7 @@ function UtteranceCard({
         <span aria-hidden>{flag}</span>
         {label}
       </p>
-      <p
-        className={`mt-2 text-base font-medium leading-snug ${original ? "text-original" : ""}`}
-        style={{ color }}
-      >
+      <p className="mt-2 text-base font-medium leading-snug" style={{ color }}>
         {text}
       </p>
     </div>
@@ -861,7 +859,7 @@ function Notice({ tone, children }: { tone: "danger" | "warn"; children: React.R
   const styles =
     tone === "danger"
       ? "border-[var(--danger-border)] bg-[var(--danger-soft)] text-[var(--danger)]"
-      : "border-[var(--warn-border)] bg-[var(--warn-soft)] text-[var(--warn)]";
+      : "border-amber-500/30 bg-amber-500/10 text-amber-400";
 
   return (
     <p className={`rounded-xl border px-4 py-2.5 text-center text-sm ${styles}`}>{children}</p>

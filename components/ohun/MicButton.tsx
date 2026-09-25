@@ -2,9 +2,9 @@ import type { MicState } from "@/types";
 
 const ringByState: Record<MicState, string> = {
   disconnected: "border-[var(--border)]",
-  connecting: "border-[var(--warn)]",
-  listening: "border-[var(--accent)]",
-  error: "border-[var(--danger)]",
+  connecting: "border-amber-500",
+  listening: "border-emerald-500",
+  error: "border-red-500",
 };
 
 const captionByState: Record<MicState, string> = {
@@ -45,7 +45,7 @@ export function MicButton({ state = "disconnected", onClick }: MicButtonProps) {
         }`}
       >
         {interactive && state === "listening" && (
-          <span className="absolute inset-0 rounded-full border-2 border-[var(--accent)] animate-pulse-ring" />
+          <span className="absolute inset-0 rounded-full border-2 border-emerald-500 animate-pulse-ring" />
         )}
         {micIcon}
       </button>

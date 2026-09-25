@@ -270,62 +270,72 @@ export function RoomCall({ room: initialRoom, self }: { room: Room; self: Profil
                 </p>
               )}
               {transcriptionError && (
-                <p className="rounded-xl border border-[var(--warn-border)] bg-[var(--warn-soft)] px-4 py-2.5 text-center text-sm text-[var(--warn)]">
+                <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-center text-sm text-amber-400">
                   {transcriptionError}
                 </p>
               )}
               {!hasTurn && (
-                <p className="rounded-xl border border-[var(--warn-border)] bg-[var(--warn-soft)] px-4 py-2.5 text-center text-sm text-[var(--warn)]">
+                <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-center text-sm text-amber-400">
                   No TURN relay configured — a group call is more likely to fail without one.
                 </p>
               )}
               {!canSpeakAloud && (
-                <p className="rounded-xl border border-[var(--warn-border)] bg-[var(--warn-soft)] px-4 py-2.5 text-center text-sm text-[var(--warn)]">
+                <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-center text-sm text-amber-400">
                   This browser can&apos;t speak translations aloud — they still appear as captions.
                 </p>
               )}
             </div>
           )}
 
-          <div className="mt-auto flex flex-wrap items-center justify-center gap-2.5 pt-8">
+          <div className="mt-auto flex items-center justify-center gap-6 pt-8">
             <button
               type="button"
               onClick={toggleMicrophone}
               aria-label={micEnabled ? "Mute" : "Unmute"}
-              className={`flex h-11 items-center gap-2 rounded-full border px-3 text-sm font-medium transition-colors sm:px-4 ${
-                micEnabled
-                  ? "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-raised)]"
-                  : "border-[var(--danger-border)] bg-[var(--danger-soft)] text-[var(--danger)]"
-              }`}
+              className="group flex flex-col items-center gap-1.5"
             >
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
-                <rect x="9" y="2" width="6" height="12" rx="3" />
-                <path d="M5 11a7 7 0 0 0 14 0" strokeLinecap="round" />
-                <path d="M12 18v4" strokeLinecap="round" />
-                {!micEnabled && <path d="M3 3l18 18" strokeLinecap="round" />}
-              </svg>
-              <span className="hidden sm:inline">{micEnabled ? "Mute" : "Unmute"}</span>
+              <span
+                className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors ${
+                  micEnabled
+                    ? "border-[var(--border)] bg-[var(--surface)] group-hover:bg-[var(--surface-raised)]"
+                    : "border-[var(--danger-border)] bg-[var(--danger-soft)] text-[var(--danger)]"
+                }`}
+              >
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+                  <rect x="9" y="2" width="6" height="12" rx="3" />
+                  <path d="M5 11a7 7 0 0 0 14 0" strokeLinecap="round" />
+                  <path d="M12 18v4" strokeLinecap="round" />
+                  {!micEnabled && <path d="M3 3l18 18" strokeLinecap="round" />}
+                </svg>
+              </span>
+              <span className="text-[11px] font-medium text-[var(--muted)]">
+                {micEnabled ? "Mute" : "Unmute"}
+              </span>
             </button>
 
             <button
               type="button"
               onClick={toggleSpeaker}
               aria-label={speakerEnabled ? "Mute audio" : "Unmute audio"}
-              className={`flex h-11 items-center gap-2 rounded-full border px-3 text-sm font-medium transition-colors sm:px-4 ${
-                speakerEnabled
-                  ? "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-raised)]"
-                  : "border-[var(--danger-border)] bg-[var(--danger-soft)] text-[var(--danger)]"
-              }`}
+              className="group flex flex-col items-center gap-1.5"
             >
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
-                <path d="M4 9v6h4l5 4V5L8 9H4z" strokeLinejoin="round" />
-                {speakerEnabled ? (
-                  <path d="M17 9a4 4 0 0 1 0 6" strokeLinecap="round" />
-                ) : (
-                  <path d="M17 9l4 6M21 9l-4 6" strokeLinecap="round" />
-                )}
-              </svg>
-              <span className="hidden sm:inline">Speaker</span>
+              <span
+                className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors ${
+                  speakerEnabled
+                    ? "border-[var(--border)] bg-[var(--surface)] group-hover:bg-[var(--surface-raised)]"
+                    : "border-[var(--danger-border)] bg-[var(--danger-soft)] text-[var(--danger)]"
+                }`}
+              >
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+                  <path d="M4 9v6h4l5 4V5L8 9H4z" strokeLinejoin="round" />
+                  {speakerEnabled ? (
+                    <path d="M17 9a4 4 0 0 1 0 6" strokeLinecap="round" />
+                  ) : (
+                    <path d="M17 9l4 6M21 9l-4 6" strokeLinecap="round" />
+                  )}
+                </svg>
+              </span>
+              <span className="text-[11px] font-medium text-[var(--muted)]">Speaker</span>
             </button>
 
             {/* Hidden entirely, not disabled, where getUserMedia doesn't
@@ -339,25 +349,31 @@ export function RoomCall({ room: initialRoom, self }: { room: Room; self: Profil
                 onClick={() => void toggleCamera()}
                 disabled={cameraBusy}
                 aria-label={cameraOn ? "Turn camera off" : "Turn camera on"}
-                className={`flex h-11 items-center gap-2 rounded-full border px-3 text-sm font-medium transition-colors disabled:opacity-50 sm:px-4 ${
-                  !cameraOn
-                    ? "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-raised)]"
-                    : "border-[var(--danger-border)] bg-[var(--danger-soft)] text-[var(--danger)]"
-                }`}
+                className="group flex flex-col items-center gap-1.5 disabled:opacity-50"
               >
-                {cameraBusy ? (
-                  <span
-                    aria-hidden
-                    className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
-                  />
-                ) : (
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M15 10l5-3v10l-5-3" />
-                    <rect x="2" y="6" width="13" height="12" rx="2" />
-                    {cameraOn && <path d="M2 3l20 18" />}
-                  </svg>
-                )}
-                <span className="hidden sm:inline">{cameraOn ? "Stop video" : "Video"}</span>
+                <span
+                  className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors ${
+                    !cameraOn
+                      ? "border-[var(--border)] bg-[var(--surface)] group-hover:bg-[var(--surface-raised)]"
+                      : "border-[var(--danger-border)] bg-[var(--danger-soft)] text-[var(--danger)]"
+                  }`}
+                >
+                  {cameraBusy ? (
+                    <span
+                      aria-hidden
+                      className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+                    />
+                  ) : (
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M15 10l5-3v10l-5-3" />
+                      <rect x="2" y="6" width="13" height="12" rx="2" />
+                      {cameraOn && <path d="M2 3l20 18" />}
+                    </svg>
+                  )}
+                </span>
+                <span className="text-[11px] font-medium text-[var(--muted)]">
+                  {cameraOn ? "Stop video" : "Video"}
+                </span>
               </button>
             )}
 
@@ -365,12 +381,11 @@ export function RoomCall({ room: initialRoom, self }: { room: Room; self: Profil
               type="button"
               onClick={leaveAndShowSummary}
               aria-label="Leave call"
-              className="flex h-11 items-center gap-2 rounded-full bg-[var(--danger)] px-3.5 text-sm font-semibold text-white shadow-[0_8px_28px_-6px_var(--danger-border)] transition-transform duration-150 hover:brightness-110 active:scale-95 sm:px-5"
+              className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--danger)] text-[#1a0505] shadow-[0_8px_28px_-6px_var(--danger-border)] transition-transform duration-150 hover:brightness-110 active:scale-95"
             >
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M3 10.5c5-4 13-4 18 0v3.2c0 .8-.7 1.4-1.5 1.3l-3-.4a1.4 1.4 0 0 1-1.2-1.3v-1.5c-2.7-1-5.9-1-8.6 0v1.5c0 .7-.5 1.2-1.2 1.3l-3 .4A1.4 1.4 0 0 1 3 13.7z" />
               </svg>
-              <span className="hidden sm:inline">Leave</span>
             </button>
           </div>
         </section>

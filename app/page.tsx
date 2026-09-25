@@ -34,7 +34,7 @@ function PlayIcon() {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-[var(--muted)]">
+    <span className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
       {children}
     </span>
   );

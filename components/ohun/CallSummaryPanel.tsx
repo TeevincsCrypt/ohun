@@ -107,7 +107,7 @@ export function CallSummaryPanel({
       {state === "ready" && text && (
         <>
           {shownIn && shownIn !== myLanguage && (
-            <p className="mt-4 rounded-xl border border-[var(--warn-border)] bg-[var(--warn-soft)] px-4 py-2.5 text-xs text-[var(--warn)]">
+            <p className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-400">
               Shown in {getCallLanguage(shownIn)?.label} — no {getLanguage(myLanguage)?.label}{" "}
               version was written.
             </p>
