@@ -33,16 +33,9 @@ interface ChatCompletionResponse {
 
 function errorMessage(body: ChatCompletionResponse | null, status: number): string {
   const raw = typeof body?.error === "string" ? body.error : body?.error?.message;
-  // A 401/403 here is as often "this account can't use the LLM Gateway"
-  // (free tier, no card on file) as a bad key, so the gateway's own
-  // explanation is always passed through.
-  const hint =
-    status === 401 || status === 403
-      ? " (check the key, and that the AssemblyAI account is upgraded — the LLM Gateway is not available on the free tier)"
-      : status === 429
-        ? " (rate limited)"
-        : "";
-  return `AssemblyAI LLM Gateway error ${status}${raw ? `: ${raw}` : ""}${hint}`;
+  if (status === 401 || status === 403) return "the AssemblyAI API key was rejected by the LLM Gateway";
+  if (status === 429) return "rate limited by the AssemblyAI LLM Gateway — too many requests";
+  return `AssemblyAI LLM Gateway error ${status}${raw ? `: ${raw}` : ""}`;
 }
 
 export async function completeText({
