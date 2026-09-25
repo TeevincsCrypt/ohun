@@ -28,21 +28,54 @@ export class LlmRequestFailedError extends Error {
 
 interface ChatCompletionResponse {
   choices?: { message?: { content?: string | null }; finish_reason?: string | null }[];
-  error?: { message?: string } | string;
 }
 
-function errorMessage(body: ChatCompletionResponse | null, status: number): string {
-  const raw = typeof body?.error === "string" ? body.error : body?.error?.message;
+/**
+ * The gateway's error bodies don't share one shape — a 400 names the bad
+ * fields in `metadata.errors` rather than under `error` — so every known
+ * field is read, and the raw body is the fallback when none of them match.
+ */
+function describeErrorBody(rawBody: string): string {
+  let body: Record<string, unknown> | null = null;
+  try {
+    body = JSON.parse(rawBody) as Record<string, unknown>;
+  } catch {
+    // Not JSON — the raw text below is all there is.
+  }
+
+  const parts: string[] = [];
+  const add = (value: unknown) => {
+    if (typeof value === "string" && value.trim()) parts.push(value.trim());
+    else if (value && typeof value === "object") parts.push(JSON.stringify(value));
+  };
+
+  if (body) {
+    const error = body.error;
+    if (error && typeof error === "object" && "message" in error) add(error.message);
+    else add(error);
+    add(body.message);
+    add(body.detail);
+    const metadata = body.metadata as { errors?: unknown } | undefined;
+    if (Array.isArray(metadata?.errors)) metadata.errors.forEach(add);
+  }
+
+  if (parts.length === 0 && rawBody.trim()) parts.push(rawBody.trim());
+  return parts.join(" — ").slice(0, 600);
+}
+
+function errorMessage(rawBody: string, status: number, model: string): string {
+  const detail = describeErrorBody(rawBody);
   // A 401/403 here is as often "this account can't use the LLM Gateway"
-  // (free tier, no card on file) as a bad key, so the gateway's own
-  // explanation is always passed through.
+  // (free tier, no card on file) as a bad key.
   const hint =
     status === 401 || status === 403
       ? " (check the key, and that the AssemblyAI account is upgraded — the LLM Gateway is not available on the free tier)"
-      : status === 429
-        ? " (rate limited)"
-        : "";
-  return `AssemblyAI LLM Gateway error ${status}${raw ? `: ${raw}` : ""}${hint}`;
+      : status === 400
+        ? ` (model "${model}" — if the gateway doesn't recognise it, set ASSEMBLYAI_LLM_MODEL to an ID from https://llm-gateway.assemblyai.com/v1/models)`
+        : status === 429
+          ? " (rate limited)"
+          : "";
+  return `AssemblyAI LLM Gateway error ${status}${detail ? `: ${detail}` : ""}${hint}`;
 }
 
 export async function completeText({
@@ -88,11 +121,18 @@ export async function completeText({
       );
     }
 
-    const body = (await response.json().catch(() => null)) as ChatCompletionResponse | null;
+    const rawBody = await response.text().catch(() => "");
 
     if (!response.ok) {
       if (canRetry && RETRYABLE_STATUS.has(response.status)) continue;
-      throw new LlmRequestFailedError(errorMessage(body, response.status));
+      throw new LlmRequestFailedError(errorMessage(rawBody, response.status, model));
+    }
+
+    let body: ChatCompletionResponse | null = null;
+    try {
+      body = JSON.parse(rawBody) as ChatCompletionResponse;
+    } catch {
+      throw new LlmRequestFailedError("the AssemblyAI LLM Gateway returned a response that wasn't JSON");
     }
 
     const choice = body?.choices?.[0];
