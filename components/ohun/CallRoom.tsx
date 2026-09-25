@@ -117,6 +117,45 @@ function ConnectionQuality({
   );
 }
 
+function SpeakerPill({
+  label,
+  color,
+  active,
+  align = "left",
+  className = "",
+}: {
+  label: string;
+  color: string;
+  active: boolean;
+  align?: "left" | "right";
+  className?: string;
+}) {
+  return (
+    <div
+      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-opacity ${
+        align === "right" ? "flex-row-reverse" : ""
+      } ${active ? "opacity-100" : "opacity-45"} ${className}`}
+      style={{
+        borderColor: active ? color : "var(--border)",
+        backgroundColor: active ? `color-mix(in srgb, ${color} 12%, transparent)` : "transparent",
+        color: active ? color : "var(--muted)",
+      }}
+    >
+      <span className="flex gap-1" aria-hidden>
+        <span
+          className={`h-1.5 w-1.5 rounded-full ${active ? "animate-pulse" : ""}`}
+          style={{ backgroundColor: active ? color : "var(--muted)" }}
+        />
+        <span
+          className={`h-1.5 w-1.5 rounded-full ${active ? "animate-pulse" : ""}`}
+          style={{ backgroundColor: active ? color : "var(--muted)", animationDelay: "150ms" }}
+        />
+      </span>
+      <span className="truncate">{label}</span>
+    </div>
+  );
+}
+
 /** Avatar with a coloured halo that lights up while that side is talking. */
 function SpeakerAvatar({
   profile,
@@ -386,35 +425,55 @@ export function CallRoom({
             the panels below plus overflow-y-auto here (so anything that
             still doesn't fit scrolls instead of being crushed) fixed it. */}
         <section className="card-lit animate-rise flex min-h-0 min-w-0 flex-col overflow-y-auto rounded-3xl p-4 sm:p-6">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] pb-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="truncate text-lg font-bold tracking-tight">
-                Call with {other.displayName.split(" ")[0]}
-              </h1>
-              <span className="font-mono text-sm tabular-nums text-[var(--muted)]">
+          {/* On a phone the timer takes its own line above the two speaker
+              pills — all three side by side collide at 390px. sm:contents
+              dissolves the pill wrapper at wider sizes so the three sit in
+              one row again, ordered around the timer. */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+            <div className="flex flex-col items-center sm:order-2">
+              <span className="font-mono text-lg font-semibold tabular-nums tracking-tight">
                 {connected ? formatDuration(durationSeconds) : "--:--"}
               </span>
-              <span
-                className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors ${
-                  isTranslating
-                    ? "border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent)]"
-                    : "border-[var(--border)] text-[var(--muted)]"
-                }`}
-              >
-                <span
-                  className={`h-1.5 w-1.5 rounded-full bg-current ${isTranslating ? "animate-pulse" : ""}`}
-                />
-                {isTranslating ? "Translating" : "Live"}
+              <span className="mt-1 inline-flex items-center gap-1.5 text-[11px] text-[var(--muted)]">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="shrink-0">
+                  <rect x="4" y="11" width="16" height="10" rx="2" />
+                  <path d="M8 11V7a4 4 0 0 1 8 0v4" strokeLinecap="round" />
+                </svg>
+                Audio is end-to-end encrypted
               </span>
+              {/* The browser draws its own "you are sharing — Stop" bar
+                  outside this page entirely, which is real feedback but easy
+                  to miss on a phone-sized window — this is the same fact,
+                  restated where the rest of the call's status already is. */}
+              {screenSharing && (
+                <span className="mt-1 inline-flex items-center gap-1.5 text-[11px] text-[var(--accent)]">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--accent)]" />
+                  Sharing your screen
+                </span>
+              )}
+              {cameraOn && (
+                <span className="mt-1 inline-flex items-center gap-1.5 text-[11px] text-[var(--accent)]">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--accent)]" />
+                  Camera on
+                </span>
+              )}
             </div>
 
-            <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-[var(--muted)]">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="shrink-0">
-                <rect x="4" y="11" width="16" height="10" rx="2" />
-                <path d="M8 11V7a4 4 0 0 1 8 0v4" strokeLinecap="round" />
-              </svg>
-              Encrypted
-            </span>
+            <div className="flex items-center justify-between gap-2 sm:contents">
+              <SpeakerPill
+                label="You"
+                color="var(--accent)"
+                active={connected && micEnabled}
+                className="min-w-0 sm:order-1"
+              />
+              <SpeakerPill
+                label={other.displayName.split(" ")[0]}
+                color="var(--peer)"
+                active={connected && speakerEnabled}
+                align="right"
+                className="min-w-0 sm:order-3"
+              />
+            </div>
           </div>
 
           {/* The stage — one active-speaker frame, badges and the live
@@ -573,6 +632,48 @@ export function CallRoom({
               </svg>
             </ControlButton>
 
+            <ControlButton
+              label={speakerEnabled ? "Speaker" : "Muted"}
+              active={speakerEnabled}
+              onClick={toggleSpeaker}
+            >
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+                <path d="M4 9v6h4l5 4V5L8 9H4z" strokeLinejoin="round" />
+                {speakerEnabled ? (
+                  <path d="M17 9a4 4 0 0 1 0 6" strokeLinecap="round" />
+                ) : (
+                  <path d="M17 9l4 6M21 9l-4 6" strokeLinecap="round" />
+                )}
+              </svg>
+            </ControlButton>
+
+            {/* Hidden rather than disabled where the browser has no
+                screen-capture API at all — every iOS browser, WebKit
+                included — since there is no version of this that could ever
+                start working there, unlike a control waiting on permission
+                or a network condition. */}
+            {canShareScreen && (
+              <ControlButton
+                label={screenSharing ? "Stop sharing" : "Share screen"}
+                active={!screenSharing}
+                disabled={screenShareBusy}
+                onClick={() => void toggleScreenShare()}
+              >
+                {screenShareBusy ? (
+                  <span
+                    aria-hidden
+                    className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+                  />
+                ) : (
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="2" y="4" width="20" height="13" rx="2" />
+                    <path d="M8 21h8M12 17v4" />
+                    {screenSharing && <path d="M2 3l20 18" />}
+                  </svg>
+                )}
+              </ControlButton>
+            )}
+
             {canUseCamera && (
               <ControlButton
                 label={cameraOn ? "Turn camera off" : "Turn camera on"}
@@ -594,62 +695,6 @@ export function CallRoom({
                 )}
               </ControlButton>
             )}
-
-            {/* Hidden rather than disabled where the browser has no
-                screen-capture API at all — every iOS browser, WebKit
-                included — since there is no version of this that could ever
-                start working there, unlike a control waiting on permission
-                or a network condition. */}
-            {canShareScreen && (
-              <ControlButton
-                label={screenSharing ? "Stop presenting" : "Present"}
-                active={!screenSharing}
-                disabled={screenShareBusy}
-                onClick={() => void toggleScreenShare()}
-              >
-                {screenShareBusy ? (
-                  <span
-                    aria-hidden
-                    className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
-                  />
-                ) : (
-                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="2" y="4" width="20" height="13" rx="2" />
-                    <path d="M8 21h8M12 17v4" />
-                    {screenSharing && <path d="M2 3l20 18" />}
-                  </svg>
-                )}
-              </ControlButton>
-            )}
-
-            <ControlButton
-              label={speakerEnabled ? "Speaker" : "Muted"}
-              active={speakerEnabled}
-              onClick={toggleSpeaker}
-            >
-              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
-                <path d="M4 9v6h4l5 4V5L8 9H4z" strokeLinejoin="round" />
-                {speakerEnabled ? (
-                  <path d="M17 9a4 4 0 0 1 0 6" strokeLinecap="round" />
-                ) : (
-                  <path d="M17 9l4 6M21 9l-4 6" strokeLinecap="round" />
-                )}
-              </svg>
-            </ControlButton>
-
-            <span
-              className={`flex h-11 items-center gap-2 rounded-full border px-3 text-sm font-medium sm:px-4 ${
-                isTranslating
-                  ? "border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent)]"
-                  : "border-[var(--border)] text-[var(--muted)]"
-              }`}
-            >
-              <span
-                className={`h-1.5 w-1.5 rounded-full bg-current ${isTranslating ? "animate-pulse" : ""}`}
-              />
-              <span className="hidden sm:inline">Translation</span>
-              <span className="font-mono text-xs">{selfLanguage?.code.toUpperCase()}</span>
-            </span>
 
             <ControlButton label="End call" tone="danger" onClick={() => void endCall()}>
               <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">

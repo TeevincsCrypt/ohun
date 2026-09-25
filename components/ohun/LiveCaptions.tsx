@@ -3,10 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "./UserResult";
 import { PlayLineButton } from "./PlayLineButton";
-import { FilterTabs, type TranscriptFilter } from "./FilterTabs";
 import { LANGUAGE_FLAG, type CallCaption, type CallLanguageCode, type Profile } from "@/types";
 
-type Filter = TranscriptFilter;
+type Filter = "both" | "original" | "translated";
+
+const FILTER_LABEL: Record<Filter, string> = {
+  both: "Both languages",
+  original: "Original only",
+  translated: "Translation only",
+};
 
 /**
  * The running translated conversation. Each entry shows what was said and,
@@ -85,10 +90,6 @@ export function LiveCaptions({
             <path d="M5 21h14" />
           </svg>
         </button>
-      </div>
-
-      <div className="mt-3">
-        <FilterTabs value={filter} onChange={setFilter} />
       </div>
 
       <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
@@ -201,9 +202,27 @@ export function LiveCaptions({
         <div ref={endRef} />
       </div>
 
-      <div className="mt-4 flex items-center gap-2 border-t border-[var(--border)] pt-4 text-xs text-[var(--muted)]">
-        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--accent)]" />
-        Live
+      <div className="mt-4 flex items-center justify-between border-t border-[var(--border)] pt-4">
+        <span className="flex items-center gap-2 text-xs text-[var(--muted)]">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--accent)]" />
+          Live
+        </span>
+
+        <label className="sr-only" htmlFor="caption-filter">
+          Transcript languages
+        </label>
+        <select
+          id="caption-filter"
+          value={filter}
+          onChange={(event) => setFilter(event.target.value as Filter)}
+          className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs text-[var(--foreground)] outline-none transition-colors focus-visible:border-[var(--accent)]"
+        >
+          {(Object.keys(FILTER_LABEL) as Filter[]).map((option) => (
+            <option key={option} value={option}>
+              {FILTER_LABEL[option]}
+            </option>
+          ))}
+        </select>
       </div>
     </div>
   );
