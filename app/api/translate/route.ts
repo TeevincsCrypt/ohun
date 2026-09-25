@@ -1,22 +1,19 @@
 import { NextResponse } from "next/server";
-import {
-  translateText,
-  MissingAnthropicKeyError,
-  TranslationFailedError,
-} from "@/lib/translation/translate";
+import { translateText, TranslationFailedError } from "@/lib/translation/translate";
+import { MissingGroqKeyError } from "@/lib/llm/groq";
 import { getLanguage } from "@/types";
 
 /**
  * Vercel kills a serverless function at 10 seconds by default, and a
- * translation with adaptive thinking can exceed that. The function dying
+ * translation plus its one retry can exceed that. The function dying
  * mid-request is indistinguishable from a network failure at the browser,
  * which is what "could not reach the translation server" actually was.
  */
 export const maxDuration = 60;
 
 /**
- * Translates one utterance. The Anthropic API key stays server-side —
- * see lib/translation/translate.ts.
+ * Translates one utterance. The Groq API key stays server-side —
+ * see lib/llm/groq.ts.
  */
 export async function POST(request: Request) {
   let body: unknown;
@@ -58,7 +55,7 @@ export async function POST(request: Request) {
     });
     return NextResponse.json(result);
   } catch (error) {
-    if (error instanceof MissingAnthropicKeyError) {
+    if (error instanceof MissingGroqKeyError) {
       console.error("[api/translate]", error.message);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }

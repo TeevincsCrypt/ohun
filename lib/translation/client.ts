@@ -9,7 +9,7 @@ export class TranslationError extends Error {
 
 /**
  * Browser-only. Sends one utterance to our own translation route, which
- * calls Claude server-side. The Anthropic API key never reaches the client.
+ * calls Groq server-side. The Groq API key never reaches the client.
  */
 export async function translateText(
   request: TranslationRequest,

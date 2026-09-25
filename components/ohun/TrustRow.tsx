@@ -5,7 +5,7 @@
  * keeps the row's visual job (a quiet line of wordmarks under the hero)
  * while saying something true: the real infrastructure OHUN is built on.
  */
-const STACK = ["AssemblyAI", "Claude", "Supabase", "WebRTC", "Next.js"];
+const STACK = ["AssemblyAI", "Groq", "Supabase", "WebRTC", "Next.js"];
 
 export function TrustRow() {
   return (

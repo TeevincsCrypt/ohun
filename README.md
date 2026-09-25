@@ -12,7 +12,7 @@ person's language as it happens. No typing exercise, no waiting for a human
 interpreter, no app to install on most platforms.
 
 Built for the AssemblyAI hackathon on Next.js 16, Supabase, AssemblyAI
-Universal-Streaming, and Claude.
+Universal-Streaming, and Groq.
 
 ## What it does
 
@@ -41,7 +41,7 @@ identity.
 **Scheduling.** Book a call for later with someone; they get an email
 invite (via Resend) with the details.
 
-**Call summaries.** After a call ends, Claude writes a short recap of what
+**Call summaries.** After a call ends, OHUN writes a short recap of what
 was actually discussed — one version per language present, so nobody reads
 a summary of their own call in someone else's language.
 
@@ -52,7 +52,7 @@ the tab isn't open.
 ## Supported languages
 
 **English, French, Spanish, German, Portuguese, Italian, and Yoruba** — as
-an account's own language, for chat and voice notes. Claude translates text
+an account's own language, for chat and voice notes. Groq translates text
 in any of these seven, and voice notes are transcribed by AssemblyAI's
 *batch* API (`lib/chat/transcribe.ts`), which covers a much broader set of
 languages than realtime streaming does — Yoruba included.
@@ -79,8 +79,8 @@ Your microphone / typed message
 AssemblyAI Universal-Streaming — realtime transcription, turn by turn
         │  finished utterance
         ▼
-Claude — translates meaning (not word-for-word), preserving tone,
-         recovering from speech-recognition slips
+Groq (gpt-oss-120b) — translates meaning (not word-for-word),
+         preserving tone, recovering from speech-recognition slips
         │  translated text
         ▼
 Captioned for both sides · spoken aloud with the Web Speech API on a call
@@ -88,7 +88,7 @@ Captioned for both sides · spoken aloud with the Web Speech API on a call
 
 Secrets never reach the browser. The client gets a short-lived AssemblyAI
 token from the server and streams audio directly to AssemblyAI; translation
-always goes browser → our server → Claude → browser, so `ANTHROPIC_API_KEY`
+always goes browser → our server → Groq → browser, so `GROQ_API_KEY`
 and `ASSEMBLYAI_API_KEY` never leave the server.
 
 **Calls (1:1 and group) are peer-to-peer WebRTC.** Supabase Realtime carries
@@ -114,7 +114,7 @@ recorded except in the post-call summary.
 - **Supabase** — Postgres with Row Level Security, Auth, Realtime
   (broadcast + `postgres_changes`), Storage
 - **AssemblyAI** — Universal-Streaming realtime speech-to-text
-- **Anthropic Claude** — translation and call summaries
+- **Groq** — translation and call summaries (`openai/gpt-oss-120b` by default, set by `GROQ_MODEL`)
 - **WebRTC** — `RTCPeerConnection` directly (no external calling SDK), STUN
   + Metered TURN
 - **Web Push** — VAPID, service worker, Web App Manifest for installable
@@ -137,7 +137,7 @@ app/
   conversation/                single-device demo: two languages, one mic at a time
   api/
     assemblyai/token/           mints a short-lived AssemblyAI streaming token
-    translate/, translate-many/  translate one or many utterances via Claude
+    translate/, translate-many/  translate one or many utterances via Groq
     ice-servers/                 resolves STUN/TURN config server-side
     rooms/[roomId]/              group-call roster endpoint
 
@@ -148,7 +148,7 @@ components/
 
 lib/
   assemblyai/                 token minting (server), realtime session + hook (browser)
-  translation/                 Claude translation calls (server + client)
+  translation/                 translation calls (server + client)
   audio/                       mic capture (AudioWorklet), Web Speech playback, queueing
   webrtc/
     peer.ts                     one 1:1 RTCPeerConnection — mic, screen share, camera
@@ -158,7 +158,7 @@ lib/
   chat/                        thread + message actions, translation, transcription
   push/                        Web Push subscribe/send
   schedule/, email/             scheduled calls + Resend invites
-  summary/                     post-call Claude recap
+  summary/                     post-call recap
   supabase/                    client/server/admin Supabase clients
 
 supabase/schema.sql            full Postgres schema + RLS policies
@@ -174,7 +174,8 @@ types/                          shared domain types
 | `NEXT_PUBLIC_SUPABASE_URL` | yes | Supabase project URL. Publishable — RLS protects the data. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | Supabase anon key. Publishable. Never use the service-role key here. |
 | `ASSEMBLYAI_API_KEY` | yes | Server-only. Mints short-lived streaming tokens for speech-to-text. |
-| `ANTHROPIC_API_KEY` | yes | Server-only. Used to translate utterances and write call summaries. |
+| `GROQ_API_KEY` | yes | Server-only. Used to translate utterances and write call summaries. Free keys at console.groq.com — the free tier allows 30 requests a minute and 1,000 a day. |
+| `GROQ_MODEL` | optional | Groq model for translation and summaries. Defaults to `openai/gpt-oss-120b`. |
 | `SUPABASE_SERVICE_ROLE_KEY` | recommended | Server-only, bypasses RLS. Needed for scheduled-call email lookups and delivering push notifications to a *different* user than the caller. |
 | `METERED_APP_NAME` / `METERED_API_KEY` | recommended | Server-only. Preferred TURN path — per-session, geo-nearest credentials. Without a working TURN relay, calls fail on restrictive networks. |
 | `METERED_TURN_USERNAME` / `METERED_TURN_CREDENTIAL` | optional | Server-only. Static TURN fallback, used only if the pair above is unset. |
@@ -186,7 +187,7 @@ types/                          shared domain types
 
 None of the non-`NEXT_PUBLIC_` variables may ever be prefixed with
 `NEXT_PUBLIC_` — that exposes them to the browser. Copy `.env.example` to
-`.env.local` and fill in at least Supabase, AssemblyAI, and Anthropic to run
+`.env.local` and fill in at least Supabase, AssemblyAI, and Groq to run
 the app; the rest degrade gracefully when unset (see the table above and the
 comments in `.env.example`).
 
@@ -196,7 +197,7 @@ comments in `.env.example`).
    editor (Dashboard → SQL Editor) — it creates every table, RLS policy, and
    the Realtime publications the app needs.
 2. Copy `.env.example` to `.env.local` and fill in Supabase, AssemblyAI, and
-   Anthropic at minimum.
+   Groq at minimum.
 3. `npm install`
 4. `npm run dev`
 
